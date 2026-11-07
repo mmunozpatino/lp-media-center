@@ -1671,6 +1671,34 @@
         letter-spacing: 1px;
       }
 
+      .pair-box {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px 20px;
+        margin: 8px 0;
+      }
+
+      .pair-code-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .pair-code-row .pair-code {
+        margin: 0;
+      }
+
+      /* Fondo blanco en los dos temas: los lectores necesitan oscuro sobre claro. */
+      .pair-qr {
+        display: block;
+        flex: none;
+        width: 168px;
+        height: 168px;
+        border-radius: 8px;
+        background: #fff;
+      }
+
       .card.device-row {
         flex-direction: row;
         align-items: center;
@@ -2428,7 +2456,7 @@
       let mobile = loadMobile();
 
       function loadMobile() {
-        const empty = { deviceId: null, secret: null, token: null, lastIp: null, tailscaleIp: null, subnets: [] };
+        const empty = { deviceId: null, secret: null, token: null, lastIp: null, tailscaleIp: null, subnets: [], name: '' };
         try {
           return { ...empty, ...JSON.parse(localStorage.getItem(MOBILE_KEY)) };
         } catch {
@@ -2621,7 +2649,8 @@
 
       let pairProblem = '';
 
-      async function pairWithCode(rawCode, typedHost) {
+      async function pairWithCode(rawCode, typedHost, rawName = '') {
+        const name = String(rawName).trim().slice(0, 60);
         const manualHost = normalizeHost(typedHost);
         const code = normalizeCode(rawCode);
         if (code.length !== 12) throw new Error('El código tiene 12 caracteres');
@@ -2641,11 +2670,11 @@
         const nonces = clientNonce + '|' + serverNonce;
         const response = await apiRequest(host, '/api/pair/finish', {
           method: 'POST',
-          body: { clientNonce, serverNonce, proof: await hmacHex(code, 'device|' + nonces), name: 'Celular Android' },
+          body: { clientNonce, serverNonce, proof: await hmacHex(code, 'device|' + nonces), name: name || 'Celular Android' },
         });
         if (!response.ok) throw new Error('La PC rechazó el emparejamiento');
         const { deviceId, sealedSecret } = await response.json();
-        mobile = { ...mobile, deviceId, secret: xorHex(sealedSecret, await hmacHex(code, 'seal|' + nonces)), token: null };
+        mobile = { ...mobile, deviceId, secret: xorHex(sealedSecret, await hmacHex(code, 'seal|' + nonces)), token: null, name };
         usePc(host);
       }
 
@@ -2669,7 +2698,7 @@
       }
 
       function forgetPc() {
-        mobile = { deviceId: null, secret: null, token: null, lastIp: null, tailscaleIp: null, subnets: [] };
+        mobile = { deviceId: null, secret: null, token: null, lastIp: null, tailscaleIp: null, subnets: [], name: mobile.name };
         pcHost = null;
         saveMobile();
       }
@@ -2755,7 +2784,283 @@
         await Promise.all(Array.from({ length: concurrency }, worker));
         return found;
       }
+
+      // Enlace que lleva el QR. La cámara del celular lo abre en la app; también lo lee "Escanear QR".
+      const PAIR_LINK_PREFIX = 'lpcinevault://emparejar';
+
+      function pairLink(code, host) {
+        const params = new URLSearchParams({ codigo: code });
+        if (host) params.set('pc', host);
+        return PAIR_LINK_PREFIX + '?' + params;
+      }
+
+      /** Lee el enlace del QR. Null si no es nuestro; una dirección que no sea privada ni de Tailscale se ignora. */
+      function parsePairLink(text) {
+        if (typeof text !== 'string' || !text.startsWith(PAIR_LINK_PREFIX + '?')) return null;
+        const params = new URLSearchParams(text.slice(PAIR_LINK_PREFIX.length + 1));
+        const code = params.get('codigo') ?? '';
+        if (normalizeCode(code).length !== 12) return null;
+        const host = normalizeHost(params.get('pc') ?? '');
+        return { code, host: host && isAllowedPcHost(host) ? host : '' };
+      }
       // --- Fin de protocolo ---
+
+      // --- QR ---
+      // Código QR del enlace de emparejamiento, sin bibliotecas: modo byte, corrección M, versiones 1 a 10.
+      // Sin DOM, para poder probarlo solo con Node.
+
+      const QR_ECC_PER_BLOCK = [0, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26];
+      const QR_BLOCKS = [0, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5];
+
+      function qrMultiply(x, y) {
+        let z = 0;
+        for (let i = 7; i >= 0; i--) {
+          z = (z << 1) ^ ((z >>> 7) * 0x11d);
+          z ^= ((y >>> i) & 1) * x;
+        }
+        return z;
+      }
+
+      function qrDivisor(degree) {
+        const result = new Array(degree).fill(0);
+        result[degree - 1] = 1;
+        let root = 1;
+        for (let i = 0; i < degree; i++) {
+          for (let j = 0; j < degree; j++) {
+            result[j] = qrMultiply(result[j], root);
+            if (j + 1 < degree) result[j] ^= result[j + 1];
+          }
+          root = qrMultiply(root, 0x02);
+        }
+        return result;
+      }
+
+      function qrRemainder(data, divisor) {
+        const result = divisor.map(() => 0);
+        for (const byte of data) {
+          const factor = byte ^ result.shift();
+          result.push(0);
+          divisor.forEach((coefficient, i) => (result[i] ^= qrMultiply(coefficient, factor)));
+        }
+        return result;
+      }
+
+      function qrRawModules(version) {
+        let result = (16 * version + 128) * version + 64;
+        if (version >= 2) {
+          const count = Math.floor(version / 7) + 2;
+          result -= (25 * count - 10) * count - 55;
+          if (version >= 7) result -= 36;
+        }
+        return result;
+      }
+
+      function qrDataCodewords(version) {
+        return Math.floor(qrRawModules(version) / 8) - QR_ECC_PER_BLOCK[version] * QR_BLOCKS[version];
+      }
+
+      function qrAlignment(version) {
+        if (version === 1) return [];
+        const count = Math.floor(version / 7) + 2;
+        const step = Math.ceil((version * 4 + 4) / (count * 2 - 2)) * 2;
+        const result = [6];
+        for (let position = version * 4 + 10; result.length < count; position -= step) result.splice(1, 0, position);
+        return result;
+      }
+
+      /** Devuelve la matriz del QR: filas de booleanos, true es un módulo oscuro. Sin margen. */
+      function qrMatrix(text) {
+        const bytes = [...new TextEncoder().encode(text)];
+        let version = 1;
+        while (version <= 10 && 4 + (version < 10 ? 8 : 16) + bytes.length * 8 > qrDataCodewords(version) * 8) version++;
+        if (version > 10) throw new Error('Texto demasiado largo para el QR');
+
+        // Datos: modo, largo, bytes, cierre y relleno.
+        const bits = [];
+        const push = (value, length) => {
+          for (let i = length - 1; i >= 0; i--) bits.push((value >>> i) & 1);
+        };
+        push(0b0100, 4);
+        push(bytes.length, version < 10 ? 8 : 16);
+        for (const byte of bytes) push(byte, 8);
+        const capacity = qrDataCodewords(version) * 8;
+        push(0, Math.min(4, capacity - bits.length));
+        push(0, (8 - (bits.length % 8)) % 8);
+        for (let pad = 0xec; bits.length < capacity; pad ^= 0xec ^ 0x11) push(pad, 8);
+        const data = [];
+        for (let i = 0; i < bits.length; i += 8) data.push(parseInt(bits.slice(i, i + 8).join(''), 2));
+
+        // Corrección de errores por bloque, intercalada.
+        const blockCount = QR_BLOCKS[version];
+        const eccLength = QR_ECC_PER_BLOCK[version];
+        const rawCodewords = Math.floor(qrRawModules(version) / 8);
+        const shortBlocks = blockCount - (rawCodewords % blockCount);
+        const shortLength = Math.floor(rawCodewords / blockCount);
+        const divisor = qrDivisor(eccLength);
+        const blocks = [];
+        for (let i = 0, k = 0; i < blockCount; i++) {
+          const block = data.slice(k, k + shortLength - eccLength + (i < shortBlocks ? 0 : 1));
+          k += block.length;
+          const ecc = qrRemainder(block, divisor);
+          if (i < shortBlocks) block.push(0);
+          blocks.push(block.concat(ecc));
+        }
+        const codewords = [];
+        for (let i = 0; i < blocks[0].length; i++) {
+          blocks.forEach((block, j) => {
+            if (i !== shortLength - eccLength || j >= shortBlocks) codewords.push(block[i]);
+          });
+        }
+
+        // Patrones fijos.
+        const size = version * 4 + 17;
+        const modules = Array.from({ length: size }, () => new Array(size).fill(false));
+        const fixed = Array.from({ length: size }, () => new Array(size).fill(false));
+        const set = (x, y, dark) => {
+          modules[y][x] = dark;
+          fixed[y][x] = true;
+        };
+        for (let i = 0; i < size; i++) {
+          set(6, i, i % 2 === 0);
+          set(i, 6, i % 2 === 0);
+        }
+        for (const [cx, cy] of [[3, 3], [size - 4, 3], [3, size - 4]]) {
+          for (let dy = -4; dy <= 4; dy++) {
+            for (let dx = -4; dx <= 4; dx++) {
+              const x = cx + dx;
+              const y = cy + dy;
+              const distance = Math.max(Math.abs(dx), Math.abs(dy));
+              if (x >= 0 && x < size && y >= 0 && y < size) set(x, y, distance !== 2 && distance !== 4);
+            }
+          }
+        }
+        const align = qrAlignment(version);
+        align.forEach((ax, i) => {
+          align.forEach((ay, j) => {
+            const last = align.length - 1;
+            if ((i === 0 && j === 0) || (i === 0 && j === last) || (i === last && j === 0)) return;
+            for (let dy = -2; dy <= 2; dy++) {
+              for (let dx = -2; dx <= 2; dx++) set(ax + dx, ay + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+            }
+          });
+        });
+        const drawFormat = (mask) => {
+          const value = mask; // Corrección M: sus dos bits son 00.
+          let rem = value;
+          for (let i = 0; i < 10; i++) rem = (rem << 1) ^ ((rem >>> 9) * 0x537);
+          const format = ((value << 10) | rem) ^ 0x5412;
+          const bit = (i) => ((format >>> i) & 1) === 1;
+          for (let i = 0; i <= 5; i++) set(8, i, bit(i));
+          set(8, 7, bit(6));
+          set(8, 8, bit(7));
+          set(7, 8, bit(8));
+          for (let i = 9; i < 15; i++) set(14 - i, 8, bit(i));
+          for (let i = 0; i < 8; i++) set(size - 1 - i, 8, bit(i));
+          for (let i = 8; i < 15; i++) set(8, size - 15 + i, bit(i));
+          set(8, size - 8, true);
+        };
+        drawFormat(0);
+        if (version >= 7) {
+          let rem = version;
+          for (let i = 0; i < 12; i++) rem = (rem << 1) ^ ((rem >>> 11) * 0x1f25);
+          const info = (version << 12) | rem;
+          for (let i = 0; i < 18; i++) {
+            const dark = ((info >>> i) & 1) === 1;
+            const a = size - 11 + (i % 3);
+            const b = Math.floor(i / 3);
+            set(a, b, dark);
+            set(b, a, dark);
+          }
+        }
+
+        // Datos en zigzag.
+        let index = 0;
+        for (let right = size - 1; right >= 1; right -= 2) {
+          if (right === 6) right = 5;
+          for (let vertical = 0; vertical < size; vertical++) {
+            for (let j = 0; j < 2; j++) {
+              const x = right - j;
+              const upward = ((right + 1) & 2) === 0;
+              const y = upward ? size - 1 - vertical : vertical;
+              if (!fixed[y][x] && index < codewords.length * 8) {
+                modules[y][x] = ((codewords[index >>> 3] >>> (7 - (index & 7))) & 1) === 1;
+                index++;
+              }
+            }
+          }
+        }
+
+        // Máscara: se prueba cada una y queda la de menor penalidad.
+        const masks = [
+          (x, y) => (x + y) % 2 === 0,
+          (x, y) => y % 2 === 0,
+          (x) => x % 3 === 0,
+          (x, y) => (x + y) % 3 === 0,
+          (x, y) => (Math.floor(x / 3) + Math.floor(y / 2)) % 2 === 0,
+          (x, y) => ((x * y) % 2) + ((x * y) % 3) === 0,
+          (x, y) => (((x * y) % 2) + ((x * y) % 3)) % 2 === 0,
+          (x, y) => (((x + y) % 2) + ((x * y) % 3)) % 2 === 0,
+        ];
+        const applyMask = (mask) => {
+          for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) if (!fixed[y][x] && masks[mask](x, y)) modules[y][x] = !modules[y][x];
+          }
+        };
+        let best = 0;
+        let bestScore = Infinity;
+        for (let mask = 0; mask < 8; mask++) {
+          applyMask(mask);
+          drawFormat(mask);
+          const score = qrPenalty(modules);
+          if (score < bestScore) {
+            best = mask;
+            bestScore = score;
+          }
+          applyMask(mask);
+        }
+        applyMask(best);
+        drawFormat(best);
+        return modules;
+      }
+
+      function qrPenalty(modules) {
+        const size = modules.length;
+        let score = 0;
+        const lines = [];
+        for (let i = 0; i < size; i++) {
+          lines.push(modules[i].map(Number).join(''));
+          lines.push(modules.map((row) => Number(row[i])).join(''));
+        }
+        for (const line of lines) {
+          for (const run of line.match(/0{5,}|1{5,}/g) ?? []) score += run.length - 2;
+          score += 40 * (line.match(/(?=10111010000|00001011101)/g) ?? []).length;
+        }
+        let dark = 0;
+        for (let y = 0; y < size; y++) {
+          for (let x = 0; x < size; x++) {
+            if (modules[y][x]) dark++;
+            if (x < size - 1 && y < size - 1) {
+              const color = modules[y][x];
+              if (color === modules[y][x + 1] && color === modules[y + 1][x] && color === modules[y + 1][x + 1]) score += 3;
+            }
+          }
+        }
+        const total = size * size;
+        score += Math.floor(Math.abs(dark * 20 - total * 10) / total) * 10;
+        return score;
+      }
+
+      /** Trazo SVG del QR, con el margen de 4 módulos que piden los lectores. */
+      function qrSvgPath(modules) {
+        let path = '';
+        modules.forEach((row, y) => {
+          row.forEach((dark, x) => {
+            if (dark) path += `M${x + 4} ${y + 4}h1v1h-1z`;
+          });
+        });
+        return { path, size: modules.length + 8 };
+      }
+      // --- Fin de QR ---
 
       // --- Textos ---
       // Textos en español a partir de los datos del backend. Sin DOM, para poder probarlo solo con Node.
@@ -3554,7 +3859,7 @@
         copy.title = `Copiar ${label}`;
         copy.setAttribute('aria-label', copy.title);
         copy.hidden = !value;
-        copy.addEventListener('click', () => copyIp(copy, value));
+        copy.addEventListener('click', () => copyText(copy, value, 'Copiada: ' + value));
         return el('div', 'ip-row', el('div', null, el('span', 'ip-label', label), el('span', 'ip-value', value ?? 'No detectada')), copy);
       }
 
@@ -3825,8 +4130,8 @@
         );
       }
 
-      /** Copia una IP y lo muestra en el botón. El portapapeles moderno no siempre está: hay un plan B. */
-      async function copyIp(button, value) {
+      /** Copia un texto y lo muestra en el botón. El portapapeles moderno no siempre está: hay un plan B. */
+      async function copyText(button, value, message) {
         let copied = false;
         try {
           await navigator.clipboard.writeText(value);
@@ -3843,7 +4148,7 @@
           } catch {}
           area.remove();
         }
-        notify(copied ? `Copiada: ${value}` : 'No se pudo copiar', copied ? 'green' : 'red');
+        notify(copied ? message : 'No se pudo copiar', copied ? 'green' : 'red');
         if (!copied) return;
         button.replaceChildren(icon('check', 14));
         button.classList.add('done');
@@ -4184,26 +4489,92 @@
         $('content').hidden = false;
       }
 
-      function showPairing() {
+      /** `prefill` viene del QR: código y, si lo trae, la dirección de la PC. */
+      function showPairing(prefill = null) {
         $('summary').textContent = 'Primera vez en este celular';
-        const code = field('Código');
-        const host = field('Dirección de la PC (LAN o Tailscale)');
+        const name = field('Nombre de este dispositivo', 'text', mobile.name ?? '');
+        name.input.placeholder = 'Por ejemplo, Tablet del living';
+        name.input.maxLength = 60;
+        name.input.autocapitalize = 'sentences';
+        const code = field('Código', 'text', prefill?.code ?? '');
+        const host = field('Dirección de la PC (LAN o Tailscale)', 'text', prefill?.host ?? '');
         host.input.placeholder = 'Vacío: la busca en el Wi-Fi';
         const error = el('p', 'form-error');
-        const button = actionButton('Emparejar', async () => {
-          await runForm(button, error, async () => {
-            await pairWithCode(code.input.value, host.input.value);
+        const pair = () =>
+          runForm(button, error, async () => {
+            mobile.name = name.input.value.trim();
+            saveMobile();
+            await pairWithCode(code.input.value, host.input.value, name.input.value);
             showLogin();
           }, 'Buscando la PC…');
-        }, true);
+        const button = actionButton('Emparejar', pair, true);
+        /** Con el código cargado, empareja solo si ya hay nombre; si no, lo pide. */
+        const pairWhenNamed = () => {
+          if (name.input.value.trim()) return pair();
+          error.textContent = 'Código cargado. Poné un nombre para este dispositivo y tocá Emparejar.';
+          name.input.focus();
+        };
+        const scan = actionButton('Escanear QR', async () => {
+          error.textContent = '';
+          let text;
+          try {
+            text = await scanQr();
+          } catch (problem) {
+            error.textContent = problem.message || 'No se pudo abrir el lector de QR';
+            return;
+          }
+          if (text === null) return;
+          const link = parsePairLink(text);
+          if (!link) {
+            error.textContent = 'Ese QR no es para emparejar. Usá el que muestra la app de Windows.';
+            return;
+          }
+          code.input.value = link.code;
+          host.input.value = link.host;
+          await pairWhenNamed();
+        });
+        scan.hidden = !canScanQr();
         showGate(
           el('h2', null, 'Emparejar con la PC'),
-          el('p', 'muted small', 'En la app de Windows, abrí Settings, "Celulares", tocá "Emparejar un celular" y escribí acá el código. Con el celu en el Wi-Fi de casa, la PC se busca sola.'),
+          el('p', 'muted small', 'En la app de Windows, abrí Settings, "Celulares" y tocá "Emparejar un celular". Escaneá el QR o escribí el código. Con el celu en el Wi-Fi de casa, la PC se busca sola.'),
+          name.node,
           code.node,
           host.node,
-          el('div', 'row-actions', button),
+          el('div', 'row-actions', button, scan),
           error,
         );
+        if (prefill && !name.input.value.trim()) pairWhenNamed();
+      }
+
+      const canScanQr = () => isMobile && Boolean(window.Capacitor?.nativePromise);
+
+      /** Abre el lector de QR de Android. Devuelve el texto, o null si se canceló. */
+      async function scanQr() {
+        const result = await window.Capacitor.nativePromise('LpNetwork', 'scanQr', {});
+        return result.canceled ? null : result.text ?? null;
+      }
+
+      /** Si la cámara del celular abrió la app con el QR, trae el enlace, una sola vez. */
+      async function takePairLink() {
+        if (!window.Capacitor?.nativePromise) return null;
+        try {
+          return parsePairLink((await window.Capacitor.nativePromise('LpNetwork', 'takePairLink', {})).url);
+        } catch {
+          return null;
+        }
+      }
+
+      /** Lleva a emparejar con lo que trae el QR. No empareja solo: lo confirma la persona con el botón. */
+      async function handlePairLink() {
+        const link = await takePairLink();
+        if (!link) return false;
+        if (mobile.deviceId) {
+          if (!window.confirm('Este dispositivo ya está emparejado con una PC. ¿Emparejarlo de nuevo con el código del QR?')) return true;
+          await logout();
+          forgetPc();
+        }
+        showPairing(link);
+        return true;
       }
 
       function showLogin() {
@@ -4267,6 +4638,7 @@
 
       async function startMobile() {
         $('connection-section').hidden = false;
+        if (await handlePairLink()) return;
         if (!mobile.deviceId) {
           showPairing();
           return;
@@ -4317,6 +4689,25 @@
       }
 
       // --- Celulares, solo en la app de Windows ---
+      /** Código para el celular, para copiar o escanear. El QR lleva también la dirección de la PC. */
+      function pairCodeBlock(code, host) {
+        const copy = el('button', 'icon-button', icon('copy', 16));
+        copy.type = 'button';
+        copy.title = 'Copiar el código';
+        copy.setAttribute('aria-label', copy.title);
+        copy.addEventListener('click', () => copyText(copy, code, 'Código copiado'));
+        const { path, size } = qrSvgPath(qrMatrix(pairLink(code, host)));
+        const qr = svgNode('svg', {
+          class: 'pair-qr',
+          viewBox: '0 0 ' + size + ' ' + size,
+          role: 'img',
+          'aria-label': 'QR para emparejar un celular',
+          'shape-rendering': 'crispEdges',
+        });
+        qr.append(svgNode('path', { d: path, fill: '#000' }));
+        return el('div', 'pair-box', qr, el('div', 'pair-code-row', el('span', 'pair-code', code), copy));
+      }
+
       async function setupRequest(path, body) {
         const response = await apiRequest(pcHost, path, { method: body ? 'POST' : 'GET', body });
         const json = await response.json();
@@ -4366,20 +4757,41 @@
         }, setup.hasPassword);
         pair.disabled = !setup.hasPassword;
         const network = lastStatus?.network;
+        const pcAddress = network?.lanIp ?? network?.tailscaleIp ?? null;
         cards.push(
           el(
             'article',
             'card',
             el('h3', null, 'Agregar un celular'),
-            shownCode ? el('p', 'pair-code', shownCode.code) : null,
+            shownCode ? pairCodeBlock(shownCode.code, pcAddress) : null,
             shownCode
-              ? el('p', 'muted small', 'Escribilo en la app del celular. Sirve una sola vez y vence en 10 minutos. Si el celu no encuentra la PC, usá la dirección ' + (network?.lanIp ?? 'de LAN') + (network?.tailscaleIp ? ' o, por Tailscale, ' + network.tailscaleIp : '') + '.')
+              ? el('p', 'muted small', 'En la app del celular, tocá "Escanear QR" o escribí el código. Sirve una sola vez y vence en 10 minutos. Si el celu no encuentra la PC, usá la dirección ' + (network?.lanIp ?? 'de LAN') + (network?.tailscaleIp ? ' o, por Tailscale, ' + network.tailscaleIp : '') + '.')
               : el('p', 'muted small', 'Crea un código de un solo uso para escribir en el celular.'),
             el('div', 'row-actions', pair),
           ),
         );
 
         for (const device of setup.devices) {
+          const info = el('div', null, el('h3', null, device.name), el('p', 'muted small', 'Desde el ' + new Date(device.createdAt).toLocaleDateString('es-AR')));
+          const rename = actionButton('Cambiar nombre', () => {
+            const name = field('Nombre', 'text', device.name);
+            name.input.maxLength = 60;
+            const save = actionButton('Guardar', async () => {
+              await runForm(save, error, async () => {
+                await setupRequest('/api/setup/devices/' + device.id + '/rename', { name: name.input.value });
+                await loadDevices();
+              }, 'Guardando…');
+            }, true);
+            const cancel = actionButton('Cancelar', () => loadDevices());
+            name.input.addEventListener('keydown', (event) => {
+              if (event.key === 'Enter') save.click();
+              if (event.key === 'Escape') cancel.click();
+            });
+            info.replaceChildren(name.node, el('div', 'row-actions', save, cancel));
+            rename.hidden = true;
+            name.input.focus();
+            name.input.select();
+          });
           const remove = actionButton('Quitar', async () => {
             if (!window.confirm('¿Quitar ' + device.name + '? Va a tener que emparejarse de nuevo.')) return;
             await runForm(remove, error, async () => {
@@ -4391,8 +4803,8 @@
             el(
               'article',
               'card device-row',
-              el('div', null, el('h3', null, device.name), el('p', 'muted small', 'Desde el ' + new Date(device.createdAt).toLocaleDateString('es-AR'))),
-              remove,
+              info,
+              el('div', 'row-actions', rename, remove),
             ),
           );
         }
@@ -4446,6 +4858,7 @@
       }, REFRESH_MS);
       document.addEventListener('visibilitychange', () => {
         if (!document.hidden) refresh();
+        if (!document.hidden && isMobile) handlePairLink();
       });
       const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
       const SKIPPED_UPDATE_KEY = 'lp-media-center:actualizacion-omitida';

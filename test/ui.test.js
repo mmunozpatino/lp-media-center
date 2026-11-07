@@ -14,9 +14,11 @@ const { isNewerVersion, pickReleaseAsset, changeCount, changelogDate, changelogV
 
 const require = createRequire(import.meta.url);
 const protocolo = /--- Protocolo ---([\s\S]*)\/\/ --- Fin de protocolo ---/.exec(html)[1];
-const { findFirst, hmacHex, isAllowedPcHost, isPrivateLan, isTailscaleHost, normalizeCode, normalizeHost, randomHex, subnetHosts, subnetOf, xorHex } = new Function(
-  `${protocolo}; return { findFirst, hmacHex, isAllowedPcHost, isPrivateLan, isTailscaleHost, normalizeCode, normalizeHost, randomHex, subnetHosts, subnetOf, xorHex };`,
+const { findFirst, hmacHex, isAllowedPcHost, isPrivateLan, isTailscaleHost, normalizeCode, normalizeHost, pairLink, parsePairLink, randomHex, subnetHosts, subnetOf, xorHex } = new Function(
+  `${protocolo}; return { findFirst, hmacHex, isAllowedPcHost, isPrivateLan, isTailscaleHost, normalizeCode, normalizeHost, pairLink, parsePairLink, randomHex, subnetHosts, subnetOf, xorHex };`,
 )();
+const qrSection = /--- QR ---([\s\S]*)\/\/ --- Fin de QR ---/.exec(html)[1];
+const { qrMatrix, qrSvgPath } = new Function(`${qrSection}; return { qrMatrix, qrSvgPath };`)();
 
 const { isReleaseUrl, isSeerrUrl, isServiceUrl } = require('../electron/seerr-url.cjs');
 const { backendScriptPath } = require('../electron/backend.cjs');
@@ -500,5 +502,41 @@ describe('enlaces de actualización', () => {
     ]) {
       assert.equal(isReleaseUrl(url), false, url);
     }
+  });
+});
+
+describe('QR de emparejamiento', () => {
+  it('arma y lee el enlace, y descarta lo que no es nuestro', () => {
+    const link = pairLink('ABCD-EFGH-JK23', '192.168.1.20');
+    assert.equal(link, 'lpcinevault://emparejar?codigo=ABCD-EFGH-JK23&pc=192.168.1.20');
+    assert.deepEqual(parsePairLink(link), { code: 'ABCD-EFGH-JK23', host: '192.168.1.20' });
+    assert.deepEqual(parsePairLink(pairLink('ABCD-EFGH-JK23', null)), { code: 'ABCD-EFGH-JK23', host: '' });
+    assert.deepEqual(parsePairLink(pairLink('ABCD-EFGH-JK23', '8.8.8.8')), { code: 'ABCD-EFGH-JK23', host: '' });
+    assert.equal(parsePairLink('lpcinevault://emparejar?codigo=CORTO'), null);
+    assert.equal(parsePairLink('https://example.com/?codigo=ABCD-EFGH-JK23'), null);
+    assert.equal(parsePairLink(null), null);
+  });
+
+  it('elige la versión según el largo y respeta los patrones fijos', () => {
+    const small = qrMatrix('hola');
+    assert.equal(small.length, 21);
+    const link = qrMatrix(pairLink('ABCD-EFGH-JK23', '100.101.102.103'));
+    assert.equal(link.length, 37); // Versión 5.
+    for (const matrix of [small, link]) {
+      const n = matrix.length;
+      // Esquinas de los tres buscadores y el módulo oscuro fijo.
+      for (const [x, y] of [[0, 0], [6, 6], [n - 1, 0], [0, n - 1], [8, n - 8]]) assert.equal(matrix[y][x], true);
+      for (const [x, y] of [[7, 7], [n - 8, 7], [7, n - 8]]) assert.equal(matrix[y][x], false);
+      // Línea de tiempo alternada.
+      for (let i = 8; i < n - 8; i++) assert.equal(matrix[6][i], i % 2 === 0);
+    }
+    assert.equal(qrMatrix('x'.repeat(200)).length, 57); // Versión 10.
+    assert.throws(() => qrMatrix('x'.repeat(400)), /demasiado largo/);
+  });
+
+  it('dibuja solo los módulos oscuros, con margen', () => {
+    const { path, size } = qrSvgPath([[true, false], [false, true]]);
+    assert.equal(size, 10);
+    assert.equal(path, 'M4 4h1v1h-1zM5 5h1v1h-1z');
   });
 });

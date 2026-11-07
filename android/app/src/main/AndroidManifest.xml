@@ -23,7 +23,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Enlace del QR de emparejamiento: la cámara del celular abre la app con el código. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="lpcinevault" android:host="emparejar" />
+            </intent-filter>
+
         </activity>
+
+        <!-- Baja el lector de QR al instalar, para que no haya que esperarlo la primera vez. -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="barcode_ui" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
