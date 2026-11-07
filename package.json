@@ -1,0 +1,56 @@
+{
+  "name": "lp-media-center",
+  "productName": "LP Media Center",
+  "version": "0.1.0",
+  "description": "LP Cine Vault: panel del servidor casero de películas y series",
+  "author": "mmunozpatino",
+  "private": true,
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "node scripts/start.mjs",
+    "backend": "node backend/server.js",
+    "app": "electron .",
+    "test": "node --test",
+    "postinstall": "install-electron",
+    "dist": "electron-builder --win nsis",
+    "apk": "node scripts/build-apk.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/cli": "^8.6.0",
+    "@capacitor/core": "^8.6.0",
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "ar.lp.mediacenter",
+    "productName": "LP Media Center",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**",
+      "ui/**",
+      "backend/**"
+    ],
+    "asarUnpack": [
+      "backend/**"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh",
+      "shortcutName": "LP Cine Vault",
+      "uninstallDisplayName": "LP Cine Vault",
+      "artifactName": "LP-Cine-Vault-Setup.${ext}"
+    }
+  }
+}

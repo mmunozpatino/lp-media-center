@@ -1,0 +1,13 @@
+node_modules/
+dist/
+out/
+*.log
+.env
+.env.*
+*.keystore
+*.jks
+local.properties
+android/.gradle/
+android/app/build/
+android/build/
+ui/build-info.json

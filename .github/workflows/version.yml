@@ -1,0 +1,101 @@
+# Cada push a main publica una versión con el APK y el instalador de Windows. Las apps la detectan y la
+# ofrecen. La versión es 0.1.<número de corrida>, y el código de versión de Android, ese mismo número.
+name: Versión
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: version
+  cancel-in-progress: false
+
+env:
+  LP_VERSION: 0.1.${{ github.run_number }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+
+  android:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm ci --ignore-scripts
+      - run: node scripts/build-info.mjs
+      - run: npx cap sync android
+      - name: Clave de firma
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/lp-release.jks"
+      - name: APK
+        working-directory: android
+        env:
+          LP_KEYSTORE_FILE: ${{ runner.temp }}/lp-release.jks
+          LP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          LP_VERSION_NAME: ${{ env.LP_VERSION }}
+          LP_VERSION_CODE: ${{ github.run_number }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          mv app/build/outputs/apk/release/app-release.apk ../LP-Cine-Vault.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: LP-Cine-Vault.apk
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: node scripts/build-info.mjs
+      - run: npm version $env:LP_VERSION --no-git-tag-version --allow-same-version
+      - run: npx electron-builder --win nsis --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/LP-Cine-Vault-Setup.exe
+
+  publicar:
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Publicar versión
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "v$LP_VERSION"
+          LP-Cine-Vault.apk LP-Cine-Vault-Setup.exe
+          --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
+          --title "LP Cine Vault $LP_VERSION"
+          --notes "Versión generada desde $GITHUB_SHA."

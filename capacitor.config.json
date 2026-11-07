@@ -1,0 +1,10 @@
+{
+  "appId": "ar.lp.mediacenter",
+  "appName": "LP Cine Vault",
+  "webDir": "ui",
+  "server": {
+    "androidScheme": "http",
+    "hostname": "localhost",
+    "cleartext": true
+  }
+}

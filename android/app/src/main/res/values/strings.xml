@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">LP Cine Vault</string>
+    <string name="title_activity_main">LP Cine Vault</string>
+    <string name="package_name">ar.lp.mediacenter</string>
+    <string name="custom_url_scheme">ar.lp.mediacenter</string>
+</resources>

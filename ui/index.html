@@ -1,0 +1,4202 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!-- Todo va en este archivo. connect-src admite cualquier http: la dirección del backend se
+         decide en la sección "Conexión" y va a cambiar con la IP de la PC. De afuera solo se cargan
+         las miniaturas de TMDB, y sin ellas se dibuja un marcador. -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src http: https://api.github.com; img-src https://image.tmdb.org data:; base-uri 'none'; form-action 'none'"
+    />
+    <title>Media Center</title>
+    <script>
+      // Antes de dibujar, para que no parpadee el tema equivocado. Oscuro por defecto.
+      try {
+        if (localStorage.getItem('lp-media-center:tema') === 'light') document.documentElement.dataset.theme = 'light';
+      } catch {}
+    </script>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #08090d;
+        --sidebar: #090a10;
+        --card: #13131b;
+        --card-2: #191923;
+        --border: #262633;
+        --border-soft: rgba(255, 255, 255, 0.055);
+        --text: #f5f5f7;
+        --text-2: #bdbdc8;
+        --muted: #92929f;
+        --purple: #9b5cff;
+        --purple-text: #b48bff;
+        --blue: #38a9ff;
+        --green: #22d99a;
+        --red: #ff4d5a;
+        --gold: #d6ad55;
+        --yellow: #f2c94c;
+        --track: #262633;
+        --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+        --art-opacity: 0.85;
+        --seat: #191428;
+        --side-w: clamp(204px, 13.6vw, 262px);
+        --pad: clamp(20px, 2vw, 38px);
+        --gap: clamp(10px, 0.85vw, 16px);
+      }
+
+      :root[data-theme='light'] {
+        color-scheme: light;
+        --bg: #f4f4f8;
+        --sidebar: #ffffff;
+        --card: #ffffff;
+        --card-2: #faf9fc;
+        --border: #e2e1ea;
+        --border-soft: rgba(20, 16, 40, 0.09);
+        --text: #16161d;
+        --text-2: #4d4d5a;
+        --muted: #5f5f6d;
+        --purple: #6d33d6;
+        --purple-text: #6d33d6;
+        --blue: #0a6fc0;
+        --green: #0a8a5e;
+        --red: #d12735;
+        --gold: #8d6a20;
+        --yellow: #946600;
+        --track: #e6e5ee;
+        --shadow: 0 8px 22px rgba(30, 20, 70, 0.07);
+        --art-opacity: 0.28;
+        --seat: #cfc9e2;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      html {
+        background: var(--bg);
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          radial-gradient(900px 500px at 78% -8%, rgba(155, 92, 255, 0.1), transparent 70%),
+          radial-gradient(700px 500px at 100% 100%, rgba(214, 173, 85, 0.035), transparent 70%), var(--bg);
+        color: var(--text);
+        font: 14px/1.42 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      h1, h2, h3, p, ul, dl, dd {
+        margin: 0;
+      }
+
+      h3 {
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .small {
+        font-size: 12.5px;
+      }
+
+      svg.lucide {
+        flex: none;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.9;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      /* --- Marca --- */
+      .brand {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        line-height: 1.1;
+      }
+
+      .brand-reel {
+        width: 66px;
+        height: 66px;
+        filter: drop-shadow(0 4px 14px rgba(214, 173, 85, 0.22));
+      }
+
+      .brand-name {
+        margin-top: 6px;
+        font-size: 25px;
+        font-weight: 650;
+        letter-spacing: -0.3px;
+      }
+
+      .brand-name span {
+        color: var(--purple-text);
+      }
+
+      .brand-sub {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 9.5px;
+        letter-spacing: 0.26em;
+      }
+
+      .brand.inline {
+        flex-direction: row;
+        gap: 8px;
+        text-align: left;
+      }
+
+      .brand.inline .brand-reel {
+        width: 38px;
+        height: 38px;
+      }
+
+      .brand.inline .brand-name {
+        margin: 0;
+        font-size: 19px;
+      }
+
+      .brand.inline .brand-sub {
+        margin-top: 2px;
+        font-size: 7.5px;
+      }
+
+      /* --- Barra lateral --- */
+      .sidebar {
+        position: fixed;
+        inset: 0 auto 0 0;
+        z-index: 30;
+        display: flex;
+        flex-direction: column;
+        width: var(--side-w);
+        padding: clamp(18px, 3vh, 34px) 14px 18px;
+        border-right: 1px solid var(--border-soft);
+        background: linear-gradient(180deg, var(--sidebar), var(--sidebar) 60%, color-mix(in srgb, var(--purple) 6%, var(--sidebar)));
+        overflow-y: auto;
+      }
+
+      .nav {
+        display: grid;
+        gap: 4px;
+        margin-top: clamp(16px, 3.4vh, 38px);
+      }
+
+      .nav-item {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        width: 100%;
+        min-height: clamp(38px, 4.8vh, 46px);
+        padding: 0 14px;
+        border: 0;
+        border-radius: 10px;
+        background: none;
+        color: var(--text-2);
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+        transition: background 0.18s, color 0.18s;
+      }
+
+      .nav-item svg {
+        color: var(--muted);
+        transition: color 0.18s;
+      }
+
+      .nav-item[aria-current='page'] {
+        background: linear-gradient(90deg, color-mix(in srgb, var(--purple) 24%, transparent), color-mix(in srgb, var(--purple) 8%, transparent));
+        color: var(--text);
+        font-weight: 600;
+      }
+
+      .nav-item[aria-current='page'] svg {
+        color: var(--purple-text);
+      }
+
+      .nav-item[aria-current='page']::before {
+        content: '';
+        position: absolute;
+        inset: 7px auto 7px 0;
+        width: 3px;
+        border-radius: 3px;
+        background: var(--purple);
+        box-shadow: 0 0 10px color-mix(in srgb, var(--purple) 80%, transparent);
+      }
+
+      .side-art {
+        margin-top: auto;
+        padding-top: 16px;
+        color: var(--muted);
+        text-align: center;
+      }
+
+      .side-art svg {
+        display: block;
+        width: 72%;
+        margin: 0 auto 12px;
+        opacity: calc(var(--art-opacity) * 0.8);
+      }
+
+      .side-art p {
+        font-size: 10.5px;
+        letter-spacing: 0.3em;
+        line-height: 1.7;
+      }
+
+      .side-art i {
+        display: block;
+        width: 44px;
+        height: 2px;
+        margin: 10px auto 0;
+        border-radius: 2px;
+        background: linear-gradient(90deg, transparent, var(--purple), transparent);
+      }
+
+      .scrim {
+        position: fixed;
+        inset: 0;
+        z-index: 25;
+        background: rgba(4, 4, 8, 0.6);
+      }
+
+      /* --- Encabezado --- */
+      .main {
+        min-width: 0;
+        margin-left: var(--side-w);
+        padding: 0 var(--pad) max(28px, env(safe-area-inset-bottom));
+      }
+
+      .main-inner {
+        display: flex;
+        flex-direction: column;
+        min-height: calc(100vh - 28px);
+        max-width: 1840px;
+        margin: 0 auto;
+      }
+
+      #content {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        min-width: 0;
+      }
+
+      #view-overview {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+      }
+
+      .top {
+        position: relative;
+        z-index: 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px 20px;
+        min-height: clamp(82px, 12.5vh, 150px);
+        margin: 0 calc(var(--pad) * -1);
+        padding: max(14px, env(safe-area-inset-top)) var(--pad) 14px;
+      }
+
+      .hero-art {
+        position: absolute;
+        top: 0;
+        right: clamp(200px, 13vw, 250px);
+        bottom: 0;
+        z-index: -1;
+        width: calc(100% - clamp(200px, 13vw, 250px));
+        height: 100%;
+        opacity: var(--art-opacity);
+        -webkit-mask-image: linear-gradient(90deg, transparent 22%, #000 62%);
+        mask-image: linear-gradient(90deg, transparent 22%, #000 62%);
+        pointer-events: none;
+      }
+
+      .top-brand,
+      .icon-button.menu-toggle {
+        display: none;
+      }
+
+      .top-title {
+        display: flex;
+        flex: 1 1 280px;
+        align-items: center;
+        gap: clamp(12px, 1.3vw, 24px);
+        min-width: 0;
+        padding-left: clamp(0px, 0.8vw, 14px);
+      }
+
+      .global-dot {
+        flex: none;
+        width: clamp(14px, 1.15vw, 20px);
+        height: clamp(14px, 1.15vw, 20px);
+        border-radius: 50%;
+        background: var(--dot, var(--muted));
+        box-shadow: 0 0 0 5px color-mix(in srgb, var(--dot, var(--muted)) 16%, transparent), 0 0 20px var(--dot, var(--muted));
+        animation: breathe 3.6s ease-in-out infinite;
+      }
+
+      [data-level='ok'] {
+        --dot: var(--green);
+      }
+
+      [data-level='warning'] {
+        --dot: var(--yellow);
+      }
+
+      [data-level='down'] {
+        --dot: var(--red);
+      }
+
+      @keyframes breathe {
+        50% {
+          box-shadow: 0 0 0 7px color-mix(in srgb, var(--dot, var(--muted)) 10%, transparent), 0 0 28px var(--dot, var(--muted));
+        }
+      }
+
+      h1 {
+        font-size: clamp(21px, 2vw, 36px);
+        font-weight: 650;
+        letter-spacing: -0.4px;
+        line-height: 1.15;
+      }
+
+      #summary {
+        margin-top: 4px;
+        color: var(--text-2);
+        font-size: clamp(12.5px, 0.8vw, 14.5px);
+      }
+
+      .top-time {
+        display: grid;
+        flex: none;
+        gap: 4px;
+        justify-items: end;
+        align-self: flex-start;
+        margin-top: 6px;
+        font-size: 13px;
+      }
+
+      .top-time > div {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      #clock-time {
+        font-weight: 600;
+      }
+
+      .icon-button {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        background: none;
+        color: var(--muted);
+        cursor: pointer;
+        transition: color 0.15s, border-color 0.15s, background 0.15s;
+      }
+
+      .icon-button:hover:not(:disabled) {
+        border-color: var(--border);
+        background: var(--card-2);
+        color: var(--text);
+      }
+
+      .icon-button.done {
+        color: var(--green);
+      }
+
+      #refresh:disabled svg {
+        animation: spin 1s linear infinite;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .update {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px 14px;
+        margin-bottom: var(--gap);
+        padding: 12px 14px;
+        border: 1px solid color-mix(in srgb, var(--purple) 55%, transparent);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--purple) 12%, var(--card));
+      }
+
+      .update p {
+        flex: 1 1 260px;
+        margin: 0;
+      }
+
+      .banner {
+        margin-bottom: var(--gap);
+        padding: 12px 14px;
+        border: 1px solid color-mix(in srgb, var(--red) 55%, transparent);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--red) 12%, var(--card));
+      }
+
+      .banner strong {
+        display: block;
+        color: var(--red);
+        font-size: 15px;
+      }
+
+      main.stale {
+        opacity: 0.55;
+      }
+
+      /* --- Vistas --- */
+      .view {
+        animation: enter 0.22s ease-out;
+      }
+
+      @keyframes enter {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+      }
+
+      .view-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px 16px;
+        margin-bottom: var(--gap);
+      }
+
+      .view-title {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 2px 12px;
+      }
+
+      h2 {
+        margin: 0;
+        font-size: 19px;
+        font-weight: 650;
+      }
+
+      .view-actions,
+      .row-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .row-actions {
+        margin-top: 12px;
+      }
+
+      .settings-block + .settings-block {
+        margin-top: 24px;
+      }
+
+      .settings-sub {
+        margin-bottom: 10px;
+      }
+
+      /* --- Botones --- */
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        white-space: nowrap;
+        min-height: 36px;
+        padding: 0 14px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: var(--card-2);
+        color: var(--text);
+        font: inherit;
+        cursor: pointer;
+        transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+      }
+
+      .button:hover:not(:disabled) {
+        border-color: var(--purple);
+        box-shadow: 0 0 16px color-mix(in srgb, var(--purple) 18%, transparent);
+      }
+
+      .button.primary {
+        border-color: var(--purple);
+        background: var(--purple);
+        color: #ffffff;
+        font-weight: 600;
+      }
+
+      .button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      button:focus-visible,
+      select:focus-visible,
+      input:focus-visible {
+        outline: 2px solid var(--purple);
+        outline-offset: 2px;
+      }
+
+      .link-button {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px 2px;
+        border: 0;
+        background: none;
+        color: var(--purple-text);
+        font: inherit;
+        font-size: 12.5px;
+        cursor: pointer;
+      }
+
+      .link-button:hover:not(:disabled) {
+        text-decoration: underline;
+      }
+
+      .link-button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+
+      /* --- Tarjetas de métricas --- */
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: clamp(10px, 1.1vw, 20px);
+      }
+
+      .metric {
+        position: relative;
+        display: flex;
+        align-items: flex-start;
+        gap: clamp(10px, 0.9vw, 16px);
+        min-width: 0;
+        min-height: clamp(98px, 13.4vh, 150px);
+        padding: clamp(12px, 1vw, 20px);
+        border: 1px solid color-mix(in srgb, var(--c) 18%, var(--border));
+        border-radius: 14px;
+        background:
+          radial-gradient(120% 90% at 100% 100%, color-mix(in srgb, var(--c) 18%, transparent), transparent 62%),
+          linear-gradient(180deg, var(--card-2), var(--card));
+        box-shadow: var(--shadow);
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        overflow: hidden;
+        cursor: pointer;
+        transition: border-color 0.2s, transform 0.2s;
+      }
+
+      .metric-icon {
+        display: flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        width: clamp(44px, 3.4vw, 62px);
+        height: clamp(44px, 3.4vw, 62px);
+        border-radius: 50%;
+        background: radial-gradient(circle, color-mix(in srgb, var(--c) 24%, transparent), transparent 72%);
+        color: var(--c);
+      }
+
+      .metric-icon svg {
+        width: 62%;
+        height: 62%;
+        filter: drop-shadow(0 0 8px color-mix(in srgb, var(--c) 55%, transparent));
+      }
+
+      .metric-text {
+        position: relative;
+        z-index: 1;
+        display: block;
+        min-width: 0;
+      }
+
+      .metric-value {
+        display: block;
+        font-size: clamp(25px, 1.9vw, 34px);
+        font-weight: 650;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -0.5px;
+        line-height: 1.12;
+      }
+
+      .metric-value small {
+        margin-left: 2px;
+        color: var(--text-2);
+        font-size: 0.68em;
+        font-weight: 500;
+      }
+
+      .metric-label {
+        display: block;
+        color: var(--text-2);
+        font-size: 13px;
+      }
+
+      .metric-note {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .metric .spark {
+        position: absolute;
+        inset: auto 0 0 0;
+        width: 100%;
+        height: 42%;
+      }
+
+      .metric:has(.metric-note) .spark {
+        height: 30%;
+      }
+
+      .tile .spark path:not(.spark-line),
+      .part-spark .spark path:not(.spark-line) {
+        opacity: 0.45;
+      }
+
+      .bump {
+        animation: bump 0.5s ease-out;
+      }
+
+      @keyframes bump {
+        30% {
+          opacity: 0.45;
+          transform: translateY(-2px);
+        }
+      }
+
+      /* --- Gráficas --- */
+      .spark {
+        display: block;
+        overflow: visible;
+      }
+
+      .spark path,
+      .spark line {
+        vector-effect: non-scaling-stroke;
+      }
+
+      .spark .spark-line {
+        fill: none;
+        stroke: var(--c);
+        stroke-width: 1.7;
+        stroke-linejoin: round;
+        stroke-linecap: round;
+        filter: drop-shadow(0 0 3px color-mix(in srgb, var(--c) 60%, transparent));
+      }
+
+      .spark .spark-base {
+        stroke: var(--c);
+        stroke-opacity: 0.25;
+        stroke-width: 1;
+        stroke-dasharray: 2 4;
+      }
+
+      .bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 2px;
+        height: clamp(54px, 8vh, 84px);
+      }
+
+      .panel .bars {
+        flex: 1 1 auto;
+        height: auto;
+        min-height: 54px;
+      }
+
+      .bars i {
+        flex: 1 1 0;
+        min-width: 0;
+        min-height: 1px;
+        border-radius: 2px 2px 0 0;
+        background: linear-gradient(180deg, #b48bff, #5d2ea8);
+        box-shadow: 0 0 6px rgba(155, 92, 255, 0.25);
+        transition: height 0.4s ease;
+      }
+
+      .bars i.off {
+        background: var(--track);
+        box-shadow: none;
+      }
+
+      /* --- Sala de proyección --- */
+      .room-head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: clamp(9px, 1.5vh, 22px) 0 clamp(6px, 1.1vh, 14px);
+      }
+
+      .room-head > svg {
+        color: var(--gold);
+      }
+
+      .room-head h2 {
+        font-size: clamp(11.5px, 0.8vw, 14.5px);
+        font-weight: 600;
+        letter-spacing: 0.3em;
+        white-space: nowrap;
+      }
+
+      .room-head .rule {
+        flex: 1;
+        min-width: 8px;
+        height: 1px;
+        background: linear-gradient(90deg, color-mix(in srgb, var(--gold) 55%, transparent), transparent);
+      }
+
+      .room-head .count {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+      }
+
+      .room-head .count::after {
+        content: '';
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--purple);
+        box-shadow: 0 0 8px var(--purple);
+      }
+
+      .room {
+        display: grid;
+        flex: 1;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-auto-rows: 1fr;
+        gap: var(--gap);
+      }
+
+      .tile {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: clamp(9px, 0.8vw, 15px);
+        min-width: 0;
+        min-height: clamp(60px, 8.4vh, 92px);
+        padding: 8px clamp(10px, 0.9vw, 18px);
+        border: 1px solid var(--border-soft);
+        border-radius: 12px;
+        background: linear-gradient(180deg, var(--card-2), var(--card));
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+        transition: border-color 0.18s, box-shadow 0.18s;
+      }
+
+      .logo {
+        display: flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        width: clamp(38px, 2.9vw, 54px);
+        height: clamp(38px, 2.9vw, 54px);
+      }
+
+      .logo img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      /* El logo de Tailscale es blanco: en el tema claro no se vería. */
+      :root[data-theme='light'] .logo.light-mark img {
+        filter: invert(1);
+      }
+
+      .tile-text {
+        display: block;
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .tile-name {
+        display: block;
+        font-size: clamp(14px, 0.85vw, 16px);
+        font-weight: 600;
+        line-height: 1.25;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .tile-uptime {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .tile .spark {
+        flex: 0 1 34%;
+        width: 34%;
+        min-width: 44px;
+        height: 34px;
+      }
+
+      .state {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12.5px;
+        font-weight: 500;
+      }
+
+      .state::before {
+        content: '';
+        flex: none;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: currentColor;
+        box-shadow: 0 0 7px currentColor;
+      }
+
+      .state-ok {
+        color: var(--green);
+      }
+
+      .state-warning,
+      .state-error {
+        color: var(--yellow);
+      }
+
+      .state-down {
+        color: var(--red);
+      }
+
+      /* --- Paneles --- */
+      .panels {
+        display: grid;
+        grid-template-columns: 1.14fr 0.98fr 0.98fr 1.06fr;
+        gap: clamp(10px, 1.1vw, 20px);
+        margin-top: clamp(9px, 1.5vh, 22px);
+      }
+
+      .panel {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        min-height: clamp(210px, 27vh, 300px);
+        padding: clamp(12px, 1vw, 20px);
+        border: 1px solid var(--border-soft);
+        border-radius: 14px;
+        background: linear-gradient(180deg, var(--card-2), var(--card));
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .panel-head {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        margin-bottom: 10px;
+      }
+
+      .panel-head h3 {
+        flex: 1;
+        min-width: 0;
+        font-size: 12.5px;
+        font-weight: 650;
+        letter-spacing: 0.03em;
+      }
+
+      .panel-meta {
+        flex: none;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .gold {
+        color: var(--gold);
+        font-weight: 600;
+      }
+
+      .pill {
+        min-width: 26px;
+        padding: 1px 8px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--purple) 34%, transparent);
+        font-weight: 650;
+        text-align: center;
+      }
+
+      .live {
+        color: var(--green);
+      }
+
+      .live.off {
+        color: var(--muted);
+      }
+
+      .live.off::before {
+        box-shadow: none;
+      }
+
+      .disk {
+        display: block;
+        min-width: 0;
+      }
+
+      .disk + .disk {
+        margin-top: clamp(4px, 0.8vh, 10px);
+      }
+
+      .disk-line {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 12.5px;
+      }
+
+      .disk-name {
+        min-width: 0;
+        color: var(--c);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .disk-percent {
+        flex: none;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .disk-percent.low {
+        color: var(--red);
+      }
+
+      .disk-facts {
+        color: var(--muted);
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .panel-foot {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        margin-top: auto;
+        padding-top: 8px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .bar {
+        height: 6px;
+        margin: 3px 0;
+        border-radius: 3px;
+        background: var(--track);
+        overflow: hidden;
+      }
+
+      .bar > div {
+        height: 100%;
+        border-radius: 3px;
+        background: linear-gradient(90deg, color-mix(in srgb, var(--c, var(--purple)) 72%, #000), var(--c, var(--purple)));
+        box-shadow: 0 0 8px color-mix(in srgb, var(--c, var(--purple)) 45%, transparent);
+        transition: width 0.5s ease;
+      }
+
+      .stat-row {
+        display: flex;
+        margin-top: auto;
+        padding-top: 10px;
+        text-align: center;
+      }
+
+      .stat {
+        flex: 1 1 auto;
+        min-width: 0;
+        padding: 0 4px;
+        white-space: nowrap;
+      }
+
+      .stat + .stat {
+        border-left: 1px solid var(--border);
+      }
+
+      .stat strong {
+        display: block;
+        font-size: 15px;
+        font-weight: 650;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .stat span {
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+
+      .note {
+        color: var(--muted);
+        font-size: 11.5px;
+        line-height: 1.35;
+      }
+
+      .note.warn {
+        color: var(--yellow);
+      }
+
+      .request {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        padding: 6px 0;
+        border-bottom: 1px solid var(--border-soft);
+      }
+
+      .poster {
+        position: relative;
+        display: flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        width: 26px;
+        height: 36px;
+        border-radius: 4px;
+        background: linear-gradient(160deg, color-mix(in srgb, var(--purple) 40%, var(--card-2)), color-mix(in srgb, var(--gold) 22%, var(--card-2)));
+        color: var(--text);
+        overflow: hidden;
+      }
+
+      .poster img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .request-text {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .request-title {
+        display: block;
+        font-size: 13px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .request-age {
+        flex: none;
+        color: var(--muted);
+        font-size: 11.5px;
+      }
+
+      .request.big {
+        align-items: flex-start;
+        padding: 0;
+        border: 0;
+      }
+
+      .request.big .poster {
+        width: 46px;
+        height: 68px;
+        border-radius: 6px;
+      }
+
+      .request.big .request-title {
+        font-size: 15px;
+        font-weight: 600;
+        white-space: normal;
+      }
+
+      .queue-foot {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 2px 8px;
+        margin-top: auto;
+        padding-top: 6px;
+      }
+
+      .ip-row {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .ip-label {
+        display: block;
+        color: var(--purple-text);
+        font-size: 11.5px;
+      }
+
+      .ip-value {
+        font-size: 13.5px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .ip-row + .ip-row {
+        margin-top: 4px;
+      }
+
+      .transfer {
+        position: relative;
+        display: grid;
+        gap: 6px;
+        margin-top: auto;
+        padding-top: 8px;
+      }
+
+      .transfer-line {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .transfer-line span {
+        display: block;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.15;
+      }
+
+      .transfer-line strong {
+        display: block;
+        font-size: 13px;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .panel-art {
+        position: absolute;
+        right: -46px;
+        bottom: -50px;
+        width: 210px;
+        height: 210px;
+        opacity: var(--art-opacity);
+        pointer-events: none;
+      }
+
+      /* --- Tarjetas de detalle --- */
+      .grid,
+      .stack {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: var(--gap);
+      }
+
+      .grid.three {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .stack > :not(.card) {
+        grid-column: 1 / -1;
+      }
+
+      .card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        padding: 14px 16px;
+        border: 1px solid var(--border-soft);
+        border-radius: 12px;
+        background: linear-gradient(180deg, var(--card-2), var(--card));
+        overflow-wrap: anywhere;
+      }
+
+      .card > * + * {
+        margin-top: 5px;
+      }
+
+      .card.with-art {
+        overflow: hidden;
+      }
+
+      .card.flash {
+        animation: flash 1.4s ease-out;
+      }
+
+      @keyframes flash {
+        20% {
+          border-color: var(--purple);
+          box-shadow: 0 0 22px color-mix(in srgb, var(--purple) 35%, transparent);
+        }
+      }
+
+      .card-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .part-title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .part-title .logo {
+        width: 38px;
+        height: 38px;
+      }
+
+      .part-title h3 {
+        min-width: 0;
+      }
+
+      .open-service {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: 1px solid var(--border);
+        border-radius: 7px;
+        background: none;
+        color: var(--muted);
+        cursor: pointer;
+        transition: color 0.15s, border-color 0.15s;
+      }
+
+      .open-service:hover:not(:disabled) {
+        border-color: var(--purple);
+        color: var(--purple-text);
+      }
+
+      .open-service:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+      }
+
+      .part-spark {
+        margin-top: 10px !important;
+      }
+
+      .part-spark .spark {
+        width: 100%;
+        height: 30px;
+      }
+
+      .part-spark .note {
+        margin-bottom: 3px;
+      }
+
+      .issues {
+        margin-top: 8px !important;
+        padding: 6px 9px;
+        border-radius: 8px;
+        background: color-mix(in srgb, var(--yellow) 11%, transparent);
+        font-size: 12.5px;
+        list-style: none;
+      }
+
+      .issues.danger {
+        background: color-mix(in srgb, var(--red) 13%, transparent);
+      }
+
+      .facts {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 4px 14px;
+        margin: 0;
+      }
+
+      .facts dt {
+        color: var(--muted);
+      }
+
+      .facts dd {
+        font-variant-numeric: tabular-nums;
+      }
+
+      .part-end {
+        margin-top: auto !important;
+      }
+
+      .part-footer {
+        display: flex;
+        justify-content: flex-end;
+        margin-top: 10px;
+      }
+
+      .part-action {
+        min-height: 32px;
+        padding: 0 12px;
+        font-size: 13px;
+      }
+
+      .action-result {
+        margin-top: 8px;
+        font-size: 12.5px;
+      }
+
+      .action-result.ok {
+        color: var(--green);
+      }
+
+      .action-result.failed {
+        color: var(--red);
+      }
+
+      .pause-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px 12px;
+      }
+
+      .pause-row .action-result {
+        flex-basis: 100%;
+        margin-top: 0;
+      }
+
+      .activity-card {
+        display: grid;
+        grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+        align-items: end;
+        gap: 14px 24px;
+        margin-bottom: var(--gap);
+      }
+
+      .card.activity-card > * + * {
+        margin-top: 0;
+      }
+
+      .storage-head {
+        margin-bottom: var(--gap);
+      }
+
+      .storage-head .spark {
+        width: 100%;
+        height: 44px;
+      }
+
+      .empty {
+        padding: 18px 14px;
+        border: 1px dashed var(--border);
+        border-radius: 12px;
+      }
+
+      /* --- Acceso y formularios --- */
+      .gate {
+        max-width: 440px;
+        margin: 8px auto 0;
+      }
+
+      .gate h2 {
+        margin: 0 0 6px;
+        font-size: 18px;
+      }
+
+      .field {
+        display: grid;
+        gap: 4px;
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .field input,
+      select.button {
+        min-height: 40px;
+        padding: 0 10px;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: var(--bg);
+        color: var(--text);
+        font: inherit;
+      }
+
+      .field input {
+        font-size: 16px;
+      }
+
+      .form-error {
+        margin-top: 10px;
+        color: var(--red);
+        font-size: 13px;
+      }
+
+      .pair-code {
+        margin: 8px 0;
+        font: 600 24px/1.2 ui-monospace, Consolas, monospace;
+        letter-spacing: 1px;
+      }
+
+      .card.device-row {
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .theme-picker {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px 12px;
+      }
+
+      body.gated .sidebar,
+      body.gated .scrim,
+      body.gated .hero-art,
+      body.gated .top-time,
+      body.gated .menu-toggle,
+      body.gated .global-dot,
+      body.gated h1 {
+        display: none !important;
+      }
+
+      body.gated .main {
+        margin-left: 0;
+        padding-bottom: 28px !important;
+      }
+
+      body.gated .top {
+        flex-direction: column;
+        justify-content: center;
+        padding-top: max(32px, env(safe-area-inset-top));
+        text-align: center;
+      }
+
+      body.gated .top-brand {
+        display: flex;
+      }
+
+      body.gated .top-title {
+        flex: none;
+        justify-content: center;
+        padding: 0;
+        border: 0;
+        background: none;
+      }
+
+      /* --- Avisos --- */
+      .toasts {
+        position: fixed;
+        right: 16px;
+        bottom: calc(16px + env(safe-area-inset-bottom));
+        z-index: 50;
+        display: grid;
+        gap: 8px;
+        max-width: min(340px, calc(100vw - 32px));
+        pointer-events: none;
+      }
+
+      .toast {
+        padding: 9px 13px;
+        border: 1px solid var(--border);
+        border-left: 3px solid var(--c, var(--purple));
+        border-radius: 9px;
+        background: var(--card-2);
+        box-shadow: var(--shadow);
+        font-size: 13px;
+        animation: enter 0.22s ease-out;
+      }
+
+      /* Barra de desplazamiento discreta en Windows. */
+      @media (hover: hover) {
+        ::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+          border-radius: 4px;
+          background: var(--border);
+        }
+
+        ::-webkit-scrollbar-track {
+          background: transparent;
+        }
+      }
+
+      /* Solo con mouse: en el dedo, un hover quedaría pegado. */
+      @media (hover: hover) {
+        .nav-item:hover:not([aria-current='page']) {
+          background: color-mix(in srgb, var(--purple) 9%, transparent);
+          color: var(--text);
+        }
+
+        .nav-item:hover svg {
+          color: var(--text);
+        }
+
+        .tile:hover {
+          border-color: color-mix(in srgb, var(--c) 45%, transparent);
+          box-shadow: 0 0 22px color-mix(in srgb, var(--c) 14%, transparent);
+        }
+
+        .metric:hover {
+          border-color: color-mix(in srgb, var(--c) 50%, var(--border));
+          transform: translateY(-1px);
+        }
+      }
+
+      /* Notebook: los paneles van de a dos si no entran cuatro legibles. */
+      @media (max-width: 1279px) {
+        .panels {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .panel {
+          min-height: 0;
+        }
+
+        .grid.three {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      /* Notebook bajo: todo Overview entra sin desplazar. */
+      @media (min-width: 1100px) and (max-height: 800px) {
+        .main {
+          padding-bottom: 10px;
+        }
+
+        .main-inner {
+          min-height: calc(100vh - 10px);
+        }
+
+        .top {
+          min-height: 72px;
+          padding-top: 8px;
+          padding-bottom: 8px;
+        }
+
+        .metric {
+          min-height: 92px;
+          padding: 8px 12px;
+        }
+
+        .metric .spark,
+        .metric:has(.metric-note) .spark {
+          height: 24%;
+        }
+
+        .tile {
+          min-height: 56px;
+          padding-top: 4px;
+          padding-bottom: 4px;
+        }
+
+        .panel {
+          padding: 10px 12px;
+        }
+
+        .panel-head {
+          margin-bottom: 6px;
+        }
+
+        .disk + .disk {
+          margin-top: 2px;
+        }
+      }
+
+      /* Pantallas bajas: la ilustración de la barra lateral no entra. */
+      @media (max-height: 690px) {
+        .side-art svg {
+          display: none;
+        }
+      }
+
+      /* Tablet: la barra lateral se abre con el menú. */
+      @media (max-width: 1099px) {
+        :root {
+          --side-w: 232px;
+          --pad: 22px;
+        }
+
+        .main {
+          margin-left: 0;
+        }
+
+        .sidebar {
+          box-shadow: 8px 0 40px rgba(0, 0, 0, 0.4);
+          transform: translateX(-104%);
+          transition: transform 0.22s ease;
+        }
+
+        body.nav-open .sidebar {
+          transform: none;
+        }
+
+        .top-brand {
+          display: flex;
+          flex: none;
+        }
+
+        .icon-button.menu-toggle {
+          display: inline-flex;
+          order: 3;
+          width: 40px;
+          height: 40px;
+        }
+
+        .hero-art {
+          display: none;
+        }
+
+        .top {
+          flex-wrap: nowrap;
+          min-height: 74px;
+          padding-top: max(10px, env(safe-area-inset-top));
+          padding-bottom: 10px;
+        }
+
+        .top-title {
+          flex: 1 1 auto;
+          padding-left: 10px;
+        }
+
+        .top-time {
+          align-self: center;
+          margin-top: 0;
+          font-size: 12px;
+        }
+
+        .metrics {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .metric {
+          min-height: 108px;
+        }
+      }
+
+      @media (max-width: 899px) {
+        .top-time {
+          display: none;
+        }
+
+        .tile .spark {
+          display: none;
+        }
+
+        .card.activity-card {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      /* Celular: navegación abajo, dos elementos por fila y paneles a todo el ancho. */
+      @media (max-width: 719px) {
+        :root {
+          --pad: 12px;
+          --gap: 8px;
+        }
+
+        .sidebar {
+          inset: auto 0 0 0;
+          flex-direction: row;
+          width: 100%;
+          padding: 0 2px env(safe-area-inset-bottom);
+          border-top: 1px solid var(--border);
+          border-right: 0;
+          background: var(--sidebar);
+          box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.3);
+          overflow: visible;
+          transform: none;
+          transition: none;
+        }
+
+        .sidebar > .brand,
+        .side-art,
+        .scrim,
+        .icon-button.menu-toggle {
+          display: none !important;
+        }
+
+        .nav {
+          grid-template-columns: repeat(7, minmax(0, 1fr));
+          gap: 0;
+          width: 100%;
+          margin: 0;
+        }
+
+        .nav-item {
+          flex-direction: column;
+          justify-content: center;
+          gap: 3px;
+          min-height: 56px;
+          padding: 4px 0;
+          border-radius: 8px;
+          font-size: 9.5px;
+          text-align: center;
+          white-space: nowrap;
+        }
+
+        .nav-item svg {
+          width: 19px;
+          height: 19px;
+        }
+
+        .nav-item[aria-current='page'] {
+          background: color-mix(in srgb, var(--purple) 16%, transparent);
+        }
+
+        .nav-item[aria-current='page']::before {
+          inset: 0 16px auto 16px;
+          width: auto;
+          height: 2px;
+        }
+
+        .main {
+          padding-bottom: calc(76px + env(safe-area-inset-bottom));
+        }
+
+        .hero-art {
+          display: none;
+        }
+
+        .top {
+          flex-wrap: wrap;
+          min-height: 0;
+          padding-bottom: 8px;
+        }
+
+        .top-title {
+          flex: 1 1 100%;
+          order: 4;
+          padding: 10px 12px;
+          border: 1px solid var(--border-soft);
+          border-radius: 12px;
+          background: var(--card);
+        }
+
+        h1 {
+          font-size: 17px;
+        }
+
+        #summary {
+          font-size: 12px;
+        }
+
+        .top-time {
+          display: grid;
+          margin-left: auto;
+          font-size: 11.5px;
+        }
+
+        .metrics {
+          gap: 8px;
+        }
+
+        .metric {
+          min-height: 88px;
+          padding: 10px;
+        }
+
+        .metric .spark,
+        .metric:has(.metric-note) .spark {
+          height: 24%;
+          opacity: 0.8;
+        }
+
+        .metric-icon {
+          width: 36px;
+          height: 36px;
+        }
+
+        .metric-value {
+          font-size: 22px;
+        }
+
+        .metric-label {
+          font-size: 11.5px;
+        }
+
+        .room {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .room-head h2 {
+          letter-spacing: 0.18em;
+        }
+
+        .tile {
+          min-height: 62px;
+          padding: 8px;
+        }
+
+        .logo {
+          width: 30px;
+          height: 30px;
+        }
+
+        .tile-name {
+          font-size: 13px;
+        }
+
+        .state,
+        .tile-uptime {
+          font-size: 11.5px;
+        }
+
+        .panels {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .card {
+          padding: 10px;
+        }
+
+        .part-title {
+          gap: 7px;
+        }
+
+        .part-title .logo {
+          width: 28px;
+          height: 28px;
+        }
+
+        .part-footer .button {
+          width: 100%;
+        }
+
+        .issues {
+          padding: 5px 6px;
+          font-size: 12px;
+        }
+
+        .card.device-row {
+          flex-direction: column;
+          align-items: stretch;
+          gap: 8px;
+        }
+
+        .view-actions {
+          width: 100%;
+        }
+
+        .view-actions .button {
+          flex: 1 1 40%;
+          padding: 0 8px;
+        }
+
+        .toasts {
+          bottom: calc(68px + env(safe-area-inset-bottom));
+        }
+      }
+
+      /* Pantallas táctiles: botones cómodos para el dedo. */
+      @media (pointer: coarse) {
+        .button {
+          min-height: 44px;
+        }
+
+        .part-action {
+          min-height: 40px;
+        }
+
+        .open-service,
+        .icon-button {
+          width: 38px;
+          height: 38px;
+        }
+      }
+
+      @media (min-width: 1700px) {
+        body {
+          font-size: 15px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation: none !important;
+          transition: none !important;
+          scroll-behavior: auto !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Dibujos propios: se reutilizan con <use>. -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true" focusable="false">
+      <defs>
+        <linearGradient id="reel-gold" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#f1d58e" />
+          <stop offset="0.55" stop-color="#d6ad55" />
+          <stop offset="1" stop-color="#9a7428" />
+        </linearGradient>
+        <linearGradient id="reel-violet" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#c29bff" />
+          <stop offset="1" stop-color="#7a3df0" />
+        </linearGradient>
+        <linearGradient id="spark-green" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22d99a" stop-opacity="0.32" /><stop offset="1" stop-color="#22d99a" stop-opacity="0" /></linearGradient>
+        <linearGradient id="spark-purple" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9b5cff" stop-opacity="0.36" /><stop offset="1" stop-color="#9b5cff" stop-opacity="0" /></linearGradient>
+        <linearGradient id="spark-blue" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#38a9ff" stop-opacity="0.32" /><stop offset="1" stop-color="#38a9ff" stop-opacity="0" /></linearGradient>
+        <linearGradient id="spark-gold" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d6ad55" stop-opacity="0.34" /><stop offset="1" stop-color="#d6ad55" stop-opacity="0" /></linearGradient>
+        <linearGradient id="spark-red" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ff4d5a" stop-opacity="0.32" /><stop offset="1" stop-color="#ff4d5a" stop-opacity="0" /></linearGradient>
+        <linearGradient id="spark-yellow" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2c94c" stop-opacity="0.3" /><stop offset="1" stop-color="#f2c94c" stop-opacity="0" /></linearGradient>
+        <radialGradient id="beam-core">
+          <stop offset="0" stop-color="#ffffff" />
+          <stop offset="0.12" stop-color="#bfe2ff" stop-opacity="0.9" />
+          <stop offset="0.45" stop-color="#38a9ff" stop-opacity="0.22" />
+          <stop offset="1" stop-color="#38a9ff" stop-opacity="0" />
+        </radialGradient>
+        <linearGradient id="beam-ray" x1="1" y1="0" x2="0" y2="0">
+          <stop offset="0" stop-color="#7cc4ff" stop-opacity="0.3" />
+          <stop offset="1" stop-color="#7cc4ff" stop-opacity="0" />
+        </linearGradient>
+        <radialGradient id="globe-fill" cx="0.36" cy="0.36" r="0.75">
+          <stop offset="0" stop-color="#38a9ff" stop-opacity="0.5" />
+          <stop offset="0.65" stop-color="#2a5dff" stop-opacity="0.22" />
+          <stop offset="1" stop-color="#9b5cff" stop-opacity="0.04" />
+        </radialGradient>
+        <pattern id="seats" width="34" height="26" patternUnits="userSpaceOnUse">
+          <path d="M4 26V10a6 6 0 0 1 6-6h14a6 6 0 0 1 6 6v16z" fill="var(--seat)" />
+        </pattern>
+      </defs>
+      <symbol id="art-reel" viewBox="0 0 64 64">
+        <circle cx="29" cy="29" r="24" fill="none" stroke="url(#reel-gold)" stroke-width="5" />
+        <g fill="none" stroke="url(#reel-gold)" stroke-width="3.2">
+          <circle cx="29" cy="15.5" r="5.4" />
+          <circle cx="41.8" cy="24.8" r="5.4" />
+          <circle cx="36.9" cy="39.9" r="5.4" />
+          <circle cx="21.1" cy="39.9" r="5.4" />
+          <circle cx="16.2" cy="24.8" r="5.4" />
+        </g>
+        <circle cx="29" cy="29" r="3.6" fill="url(#reel-violet)" />
+        <path d="M44 49c4 5 9 7 16 6" fill="none" stroke="url(#reel-violet)" stroke-width="4.4" stroke-linecap="round" />
+      </symbol>
+      <symbol id="art-clapper" viewBox="0 0 130 104">
+        <g transform="rotate(-13 12 40)">
+          <rect x="8" y="22" width="112" height="17" rx="2.5" fill="#1a1626" stroke="#3a3350" />
+          <path d="M18 22h14l-8 17H10zM46 22h14l-8 17H38zM74 22h14l-8 17H66zM102 22h14l-8 17H94z" fill="#e9e6f2" />
+        </g>
+        <rect x="8" y="42" width="112" height="56" rx="5" fill="#15121f" stroke="#3a3350" />
+        <rect x="8" y="42" width="112" height="15" rx="3" fill="#1d1a2a" />
+        <path d="M14 42h14l-7 15H8v-3zM42 42h14l-7 15H35zM70 42h14l-7 15H63zM98 42h14l-7 15H91z" fill="#e9e6f2" opacity="0.85" />
+        <path d="M18 70h52M18 82h34" stroke="#9b5cff" stroke-opacity="0.5" stroke-width="2.4" stroke-linecap="round" />
+        <path d="M84 66l16 9-16 9z" fill="#9b5cff" fill-opacity="0.75" />
+      </symbol>
+      <symbol id="art-globe" viewBox="0 0 200 200">
+        <circle cx="100" cy="100" r="86" fill="url(#globe-fill)" stroke="#38a9ff" stroke-opacity="0.45" />
+        <g fill="none" stroke="#7cc4ff" stroke-opacity="0.26">
+          <ellipse cx="100" cy="100" rx="30" ry="86" />
+          <ellipse cx="100" cy="100" rx="62" ry="86" />
+          <ellipse cx="100" cy="100" rx="86" ry="30" />
+          <ellipse cx="100" cy="100" rx="86" ry="62" />
+          <path d="M14 100h172M100 14v172" />
+        </g>
+        <path d="M46 72 84 54l34 26 34-14M84 54l-8 58 44 30M118 80l2 62" fill="none" stroke="#c29bff" stroke-opacity="0.55" />
+        <g fill="#d9edff">
+          <circle cx="46" cy="72" r="2.6" /><circle cx="84" cy="54" r="2.6" /><circle cx="118" cy="80" r="2.6" />
+          <circle cx="152" cy="66" r="2.6" /><circle cx="76" cy="112" r="2.6" /><circle cx="120" cy="142" r="2.6" />
+        </g>
+      </symbol>
+    </svg>
+
+    <aside class="sidebar" id="sidebar">
+      <div class="brand" data-brand="stack"></div>
+      <nav class="nav" aria-label="Secciones">
+        <button type="button" class="nav-item" data-view="overview"><span data-icon="house"></span>Overview</button>
+        <button type="button" class="nav-item" data-view="services"><span data-icon="server"></span>Services</button>
+        <button type="button" class="nav-item" data-view="downloads"><span data-icon="download"></span>Downloads</button>
+        <button type="button" class="nav-item" data-view="requests"><span data-icon="clapperboard"></span>Requests</button>
+        <button type="button" class="nav-item" data-view="storage"><span data-icon="database"></span>Storage</button>
+        <button type="button" class="nav-item" data-view="network"><span data-icon="wifi"></span>Network</button>
+        <button type="button" class="nav-item" data-view="settings"><span data-icon="settings"></span>Settings</button>
+      </nav>
+      <div class="side-art">
+        <svg viewBox="0 0 130 104" aria-hidden="true"><use href="#art-clapper" /></svg>
+        <p>YOUR MEDIA<br />EMPIRE</p>
+        <i></i>
+      </div>
+    </aside>
+    <div id="scrim" class="scrim" hidden></div>
+
+    <div class="main">
+      <div class="main-inner">
+        <header class="top" id="top">
+          <svg class="hero-art" viewBox="0 0 1000 170" preserveAspectRatio="xMaxYMid meet" aria-hidden="true">
+            <g opacity="0.5">
+              <rect x="300" y="24" width="32" height="44" rx="2" fill="#9b5cff" opacity="0.14" />
+              <rect x="342" y="30" width="26" height="36" rx="2" fill="#d6ad55" opacity="0.1" />
+              <rect x="378" y="24" width="32" height="44" rx="2" fill="#9b5cff" opacity="0.1" />
+            </g>
+            <path d="M520 78 180 8v150z" fill="url(#beam-ray)" />
+            <rect x="180" y="122" width="830" height="24" fill="url(#seats)" opacity="0.8" />
+            <rect x="163" y="144" width="850" height="26" fill="url(#seats)" />
+            <circle cx="520" cy="78" r="74" fill="url(#beam-core)" />
+            <use href="#art-clapper" x="556" y="16" width="170" height="136" />
+            <use href="#art-reel" x="716" y="40" width="130" height="130" opacity="0.3" />
+          </svg>
+          <div class="brand inline top-brand" data-brand="inline"></div>
+          <div class="top-title" id="global" data-level="unknown">
+            <span class="global-dot" aria-hidden="true"></span>
+            <div>
+              <h1 id="headline">Conectando…</h1>
+              <p id="summary">Conectando con la PC…</p>
+            </div>
+          </div>
+          <div class="top-time">
+            <div><span data-icon="clock" data-size="15"></span><span id="clock-time"></span><span class="muted">·</span><span id="clock-date" class="muted"></span></div>
+            <div>
+              <button id="refresh" type="button" class="icon-button" title="Actualizar" aria-label="Actualizar"><span data-icon="refresh-cw" data-size="14"></span></button>
+              <span id="updated" class="muted"></span>
+            </div>
+          </div>
+          <button id="menu-toggle" type="button" class="icon-button menu-toggle" aria-label="Abrir navegación" aria-expanded="false"><span data-icon="menu" data-size="22"></span></button>
+        </header>
+
+        <div id="banner" class="banner" role="alert" hidden></div>
+        <div id="update" class="update" role="status" hidden></div>
+        <div id="gate" class="gate" hidden></div>
+
+        <main id="content">
+          <section id="view-overview" class="view">
+            <div id="metrics" class="metrics"></div>
+            <div class="room-head">
+              <span data-icon="clapperboard" data-size="22"></span>
+              <h2>THE PROJECTION ROOM</h2>
+              <span class="rule"></span>
+              <span id="monitored" class="count"></span>
+            </div>
+            <div id="room" class="room"></div>
+            <div id="panels" class="panels"></div>
+          </section>
+
+          <section id="view-services" class="view" hidden>
+            <div class="view-head">
+              <div class="view-title"><h2>Services</h2><span id="parts-meta" class="muted small"></span></div>
+              <div class="view-actions">
+                <button id="stop-all" type="button" class="button" disabled><span data-icon="power" data-size="15"></span>Apagar todo</button>
+                <button id="start-all" type="button" class="button" disabled><span data-icon="play" data-size="15"></span>Prender todo</button>
+              </div>
+            </div>
+            <div id="parts" class="grid three"></div>
+          </section>
+
+          <section id="view-downloads" class="view" hidden>
+            <div class="view-head">
+              <div class="view-title"><h2>Downloads</h2><span id="downloads-meta" class="muted small"></span></div>
+            </div>
+            <div id="downloads-activity"></div>
+            <div id="downloads"></div>
+          </section>
+
+          <section id="view-requests" class="view" hidden>
+            <div class="view-head">
+              <div class="view-title"><h2>Requests</h2><span id="requests-meta" class="muted small"></span></div>
+              <div class="view-actions">
+                <button id="open-seerr" type="button" class="button primary" disabled><span data-icon="arrow-up-right" data-size="15"></span>Abrir Seerr</button>
+              </div>
+            </div>
+            <div id="requests"></div>
+          </section>
+
+          <section id="view-storage" class="view" hidden>
+            <div class="view-head">
+              <div class="view-title"><h2>Storage</h2><span id="disks-meta" class="muted small"></span></div>
+            </div>
+            <div id="storage-summary"></div>
+            <div id="disks"></div>
+          </section>
+
+          <section id="view-network" class="view" hidden>
+            <div class="view-head">
+              <div class="view-title"><h2>Network</h2></div>
+            </div>
+            <div id="network"></div>
+          </section>
+
+          <section id="view-settings" class="view" hidden>
+            <div class="view-head">
+              <div class="view-title"><h2>Settings</h2></div>
+            </div>
+            <div class="settings-block">
+              <article class="card">
+                <label class="theme-picker">
+                  <span>Tema</span>
+                  <select id="theme" class="button">
+                    <option value="dark">Oscuro</option>
+                    <option value="light">Claro</option>
+                  </select>
+                </label>
+              </article>
+            </div>
+            <div class="settings-block" id="devices-section" hidden>
+              <div class="view-title settings-sub"><h2>Celulares</h2><span id="devices-meta" class="muted small"></span></div>
+              <div id="devices"></div>
+            </div>
+            <div class="settings-block" id="connection-section" hidden>
+              <div class="view-title settings-sub"><h2>Conexión con la PC</h2><span id="connection-meta" class="muted small"></span></div>
+              <div id="connection"></div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+
+    <script>
+      // --- Conexión ---
+      // Único lugar de la interfaz que conoce la dirección de la PC. En Windows siempre es esta misma PC. En el
+      // celular se busca: última IP que funcionó y Tailscale, y si no, la subred propia.
+
+      const BACKEND_PORT = 8787;
+      const REQUEST_TIMEOUT_MS = 20000;
+      const ACTION_TIMEOUT_MS = 90000;
+      const PROBE_TIMEOUT_MS = 1500;
+      const SCAN_TIMEOUT_MS = 2000;
+      const SCAN_CONCURRENCY = 24;
+      const MOBILE_KEY = 'lp-media-center:celular';
+
+      const pageParams = new URLSearchParams(location.search);
+      const isMobile = Boolean(window.Capacitor?.isNativePlatform?.()) || pageParams.has('celular');
+
+      let pcHost = isMobile ? null : '127.0.0.1';
+      let mobile = loadMobile();
+
+      function loadMobile() {
+        const empty = { deviceId: null, secret: null, token: null, lastIp: null, tailscaleIp: null, subnets: [] };
+        try {
+          return { ...empty, ...JSON.parse(localStorage.getItem(MOBILE_KEY)) };
+        } catch {
+          return empty;
+        }
+      }
+
+      function saveMobile() {
+        try {
+          localStorage.setItem(MOBILE_KEY, JSON.stringify(mobile));
+        } catch {}
+      }
+
+      const addressOf = (port, host = pcHost) => {
+        if (!isAllowedPcHost(host)) throw new Error('Dirección no permitida');
+        return 'http://' + host + ':' + port;
+      };
+
+      /** La dirección de otro programa de la PC, como Seerr, con la misma IP que está usando la app. */
+      const serviceUrl = (port) => addressOf(port);
+
+      /** Abre una web en el navegador. En Android lo hace la parte nativa, que solo acepta http y https. */
+      // --- Actualizaciones ---
+      // Cada versión de main se publica en GitHub con su APK y su instalador. La app compara la suya, que
+      // viene en build-info.json (lo escribe el workflow), con la última publicada. Sin ese archivo, es una
+      // versión de desarrollo y no busca nada.
+      const RELEASES_API = 'https://api.github.com/repos/mmunozpatino/lp-media-center/releases/latest';
+
+      async function findUpdate() {
+        let current;
+        try {
+          const response = await fetch('build-info.json', { cache: 'no-store' });
+          if (!response.ok) return null;
+          current = await response.json();
+        } catch {
+          return null;
+        }
+        try {
+          const response = await fetch(RELEASES_API, {
+            headers: { Accept: 'application/vnd.github+json' },
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          });
+          if (!response.ok) return null;
+          const release = await response.json();
+          if (!isNewerVersion(release.tag_name, current.version)) return null;
+          const asset = pickReleaseAsset(release.assets, isMobile);
+          return asset ? { version: release.tag_name.replace(/^v/, ''), url: asset.browser_download_url } : null;
+        } catch {
+          return null;
+        }
+      }
+
+      function openInBrowser(url) {
+        if (window.Capacitor?.nativePromise) window.Capacitor.nativePromise('LpNetwork', 'openUrl', { url });
+        else window.open(url, 'navegador');
+      }
+
+      /** La IP del celular en su Wi-Fi. El JavaScript no puede verla: se la pide a la parte nativa. */
+      async function localIpv4() {
+        if (pageParams.has('ip')) return pageParams.get('ip');
+        try {
+          return (await window.Capacitor.nativePromise('LpNetwork', 'getLocalIpv4', {})).ip ?? null;
+        } catch {
+          return null;
+        }
+      }
+
+      /** reachable: si llegó al backend. unauthorized: si hace falta iniciar sesión. */
+      class BackendError extends Error {
+        constructor(reachable, unauthorized = false) {
+          super(reachable ? 'El backend respondió con un error' : 'No se llegó al backend');
+          this.reachable = reachable;
+          this.unauthorized = unauthorized;
+        }
+      }
+
+      function apiRequest(host, path, { method = 'GET', body, timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
+        const headers = {};
+        if (body) headers['Content-Type'] = 'application/json';
+        if (isMobile && mobile.token) headers.Authorization = 'Bearer ' + mobile.token;
+        return fetch(addressOf(BACKEND_PORT, host) + path, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+      }
+
+      async function fetchStatus() {
+        if (!pcHost) throw new BackendError(false);
+        let response;
+        try {
+          response = await apiRequest(pcHost, '/api/status');
+        } catch {
+          throw new BackendError(false);
+        }
+        if (response.status === 401) throw new BackendError(true, true);
+        if (!response.ok) throw new BackendError(true);
+        return response.json();
+      }
+
+      /** Pide frenar o levantar un programa. El backend responde cuando lo comprobó, y puede tardar. */
+      async function requestPartAction(id, action) {
+        const response = await apiRequest(pcHost, '/api/parts/' + id + '/' + action, {
+          method: 'POST',
+          timeoutMs: ACTION_TIMEOUT_MS,
+        });
+        return response.json();
+      }
+
+      async function requestDownloads(action) {
+        const response = await apiRequest(pcHost, '/api/downloads/' + action, { method: 'POST' });
+        return response.json();
+      }
+
+      /** Comprueba que en esa dirección esté nuestra PC: sin el secreto no puede responder bien. */
+      async function isOurPc(host, timeoutMs) {
+        if (!isAllowedPcHost(host)) return false;
+        try {
+          const clientNonce = randomHex(16);
+          const response = await apiRequest(host, '/api/identify', {
+            method: 'POST',
+            body: { deviceId: mobile.deviceId, clientNonce },
+            timeoutMs,
+          });
+          if (!response.ok) return false;
+          const { proof } = await response.json();
+          return proof === (await hmacHex(mobile.secret, 'pc|' + clientNonce));
+        } catch {
+          return false;
+        }
+      }
+
+      function usePc(host) {
+        pcHost = host;
+        if (isPrivateLan(host)) {
+          mobile.lastIp = host;
+          const subnet = subnetOf(host);
+          if (subnet && !mobile.subnets.includes(subnet)) mobile.subnets.push(subnet);
+        }
+        saveMobile();
+      }
+
+      /**
+       * Busca la PC. Prueba la última IP y Tailscale a la vez, y prefiere la LAN. La subred se recorre sola solo
+       * si ya encontró la PC ahí: una red ajena se recorre únicamente con force, el botón "Buscar PC".
+       */
+      async function findPc({ force = false } = {}) {
+        const [lanOk, tailscaleOk] = await Promise.all(
+          [mobile.lastIp, mobile.tailscaleIp].map((host) => (host ? isOurPc(host, PROBE_TIMEOUT_MS) : false)),
+        );
+        if (lanOk) return usePc(mobile.lastIp), mobile.lastIp;
+        if (tailscaleOk) return usePc(mobile.tailscaleIp), mobile.tailscaleIp;
+        const subnet = subnetOf(await localIpv4());
+        if (!subnet || !(force || mobile.subnets.includes(subnet))) return null;
+        const found = await findFirst(subnetHosts(subnet), (host) => isOurPc(host, SCAN_TIMEOUT_MS), SCAN_CONCURRENCY);
+        if (found) usePc(found.host);
+        return found?.host ?? null;
+      }
+
+      /** Primer paso del emparejamiento: solo vale el equipo que demuestre conocer el código. */
+      async function pairStart(host, code, timeoutMs) {
+        try {
+          const clientNonce = randomHex(16);
+          const response = await apiRequest(host, '/api/pair/start', { method: 'POST', body: { clientNonce }, timeoutMs });
+          if (!response.ok) {
+            pairProblem = 'La PC responde, pero no tiene un código activo. Creá uno en la app de Windows: sirve una vez y vence en 10 minutos.';
+            return null;
+          }
+          const { serverNonce, proof } = await response.json();
+          if (proof !== (await hmacHex(code, 'pc|' + clientNonce + '|' + serverNonce))) {
+            pairProblem = 'La PC responde, pero el código no coincide. Revisalo o creá uno nuevo.';
+            return null;
+          }
+          return { host, clientNonce, serverNonce };
+        } catch {
+          pairProblem = 'No llegué a ' + host + '. Revisá la dirección, que la PC esté prendida y, si es de Tailscale (100.x), que esté conectado en este dispositivo.';
+          return null;
+        }
+      }
+
+      let pairProblem = '';
+
+      async function pairWithCode(rawCode, typedHost) {
+        const manualHost = normalizeHost(typedHost);
+        const code = normalizeCode(rawCode);
+        if (code.length !== 12) throw new Error('El código tiene 12 caracteres');
+        let found;
+        if (manualHost) {
+          if (!isAllowedPcHost(manualHost)) throw new Error('Esa dirección no es de una red privada ni de Tailscale');
+          found = await pairStart(manualHost, code, REQUEST_TIMEOUT_MS);
+          if (!found) throw new Error(pairProblem);
+        } else {
+          const subnet = subnetOf(await localIpv4());
+          if (!subnet) throw new Error('No pude ver la red del celular. Escribí la dirección de la PC.');
+          found = (await findFirst(subnetHosts(subnet), (host) => pairStart(host, code, SCAN_TIMEOUT_MS), SCAN_CONCURRENCY))?.value;
+        }
+        if (!found) throw new Error('No encontré la PC con ese código. Revisá el código, que esté en la misma red y la regla del firewall.');
+
+        const { host, clientNonce, serverNonce } = found;
+        const nonces = clientNonce + '|' + serverNonce;
+        const response = await apiRequest(host, '/api/pair/finish', {
+          method: 'POST',
+          body: { clientNonce, serverNonce, proof: await hmacHex(code, 'device|' + nonces), name: 'Celular Android' },
+        });
+        if (!response.ok) throw new Error('La PC rechazó el emparejamiento');
+        const { deviceId, sealedSecret } = await response.json();
+        mobile = { ...mobile, deviceId, secret: xorHex(sealedSecret, await hmacHex(code, 'seal|' + nonces)), token: null };
+        usePc(host);
+      }
+
+      async function login(user, password) {
+        const response = await apiRequest(pcHost, '/api/login', {
+          method: 'POST',
+          body: { deviceId: mobile.deviceId, user, password },
+        });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error ?? 'No se pudo iniciar sesión');
+        mobile.token = body.token;
+        saveMobile();
+      }
+
+      async function logout() {
+        try {
+          await apiRequest(pcHost, '/api/logout', { method: 'POST' });
+        } catch {}
+        mobile.token = null;
+        saveMobile();
+      }
+
+      function forgetPc() {
+        mobile = { deviceId: null, secret: null, token: null, lastIp: null, tailscaleIp: null, subnets: [] };
+        pcHost = null;
+        saveMobile();
+      }
+
+      /** Se llama con cada estado: guarda las IP actuales y vuelve a la LAN si se conectó por Tailscale. */
+      async function rememberNetwork(network) {
+        if (network.tailscaleIp) mobile.tailscaleIp = network.tailscaleIp;
+        if (network.lanIp && network.lanIp !== mobile.lastIp) mobile.lastIp = network.lanIp;
+        saveMobile();
+        if (pcHost === mobile.tailscaleIp && mobile.lastIp && (await isOurPc(mobile.lastIp, PROBE_TIMEOUT_MS))) {
+          usePc(mobile.lastIp);
+        }
+      }
+
+      // --- Protocolo ---
+      // Sin DOM, para poder probarlo solo con Node. El mismo protocolo del lado de la PC está en backend/server.js.
+
+      /** Acepta la IP como se la escriba o se la pegue: con http://, con el puerto o con espacios. */
+      const normalizeHost = (text) =>
+        String(text ?? '').trim().replace(/^https?:\/\//i, '').replace(/\/.*$/, '').replace(/:\d+$/, '');
+
+      const normalizeCode = (text) => String(text).toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+      function randomHex(bytes) {
+        return [...crypto.getRandomValues(new Uint8Array(bytes))].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+      }
+
+      async function hmacHex(key, message) {
+        const encoder = new TextEncoder();
+        const imported = await crypto.subtle.importKey('raw', encoder.encode(key), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const signature = await crypto.subtle.sign('HMAC', imported, encoder.encode(message));
+        return [...new Uint8Array(signature)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+      }
+
+      function xorHex(a, b) {
+        const bytes = (hex) => hex.match(/../g).map((pair) => parseInt(pair, 16));
+        const right = bytes(b);
+        return bytes(a).map((byte, index) => (byte ^ right[index]).toString(16).padStart(2, '0')).join('');
+      }
+
+      function ipv4Parts(host) {
+        const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host ?? '');
+        if (!match) return null;
+        const parts = match.slice(1).map(Number);
+        return parts.every((part) => part <= 255) ? parts : null;
+      }
+
+      function isPrivateLan(host) {
+        const parts = ipv4Parts(host);
+        if (!parts) return false;
+        const [a, b] = parts;
+        return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+      }
+
+      function isTailscaleHost(host) {
+        const parts = ipv4Parts(host);
+        return Boolean(parts) && parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127;
+      }
+
+      /** El HTTP solo se usa hacia esta PC, direcciones privadas y Tailscale. */
+      const isAllowedPcHost = (host) => host === '127.0.0.1' || isPrivateLan(host) || isTailscaleHost(host);
+
+      /** Solo redes privadas: nunca se recorre una red de Tailscale ni una pública. */
+      function subnetOf(ip) {
+        return isPrivateLan(ip) ? ip.split('.').slice(0, 3).join('.') : null;
+      }
+
+      function subnetHosts(subnet) {
+        return Array.from({ length: 254 }, (_, index) => subnet + '.' + (index + 1));
+      }
+
+      /** Prueba de a pocos y frena en el primero que dé algo: nunca más de concurrency a la vez. */
+      async function findFirst(hosts, test, concurrency) {
+        const pending = [...hosts];
+        let found = null;
+        const worker = async () => {
+          while (pending.length && !found) {
+            const host = pending.shift();
+            const value = await test(host);
+            if (value && !found) found = { host, value };
+          }
+        };
+        await Promise.all(Array.from({ length: concurrency }, worker));
+        return found;
+      }
+      // --- Fin de protocolo ---
+
+      // --- Textos ---
+      // Textos en español a partir de los datos del backend. Sin DOM, para poder probarlo solo con Node.
+
+      /** Para qué sirve cada programa, por id de parte. */
+      const PART_PURPOSE = {
+        radarr: 'Busca y baja películas',
+        sonarr: 'Busca y baja series',
+        prowlarr: 'Administra los indexadores donde buscan Radarr y Sonarr',
+        bazarr: 'Busca y baja subtítulos',
+        qbittorrent: 'Hace las descargas de torrents',
+        jellyfin: 'Reproduce tu biblioteca de películas y series',
+        seerr: 'Catálogo para pedir películas y series',
+        bot: 'Recibe pedidos por Telegram',
+        tailscale: 'Conecta con la PC cuando estás fuera de casa',
+      };
+
+      const number = (value, digits) =>
+        value.toLocaleString('es-AR', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+
+      function formatBytes(bytes) {
+        if (typeof bytes !== 'number' || bytes < 0) return '?';
+        const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        let value = bytes;
+        let unit = 0;
+        while (value >= 1024 && unit < units.length - 1) {
+          value /= 1024;
+          unit += 1;
+        }
+        return `${number(value, unit === 0 || value >= 100 ? 0 : 1)} ${units[unit]}`;
+      }
+
+      /** Radarr y Sonarr mandan el tiempo como `hh:mm:ss` o `d.hh:mm:ss`. */
+      function formatTimeLeft(text) {
+        const match = /^(?:(\d+)\.)?(\d{1,2}):(\d{2}):(\d{2})/.exec(text ?? '');
+        if (!match) return null;
+        const [days, hours, minutes] = match.slice(1, 4).map((value) => Number(value ?? 0));
+        if (days > 0) return `${days} d ${hours} h`;
+        if (hours > 0) return `${hours} h ${minutes} min`;
+        if (minutes > 0) return `${minutes} min`;
+        return 'menos de 1 min';
+      }
+
+      const STATE_LABELS = {
+        ok: 'Funciona',
+        warning: 'Con avisos',
+        down: 'No responde',
+        error: 'Sin datos',
+      };
+
+      const stateLabel = (state) => STATE_LABELS[state] ?? 'Sin datos';
+
+      const TRACKED_LABELS = {
+        importPending: 'Por importar',
+        importing: 'Importando',
+        importBlocked: 'Importación trabada',
+        imported: 'Importada',
+        failedPending: 'Falló',
+        failed: 'Falló',
+        ignored: 'Ignorada',
+      };
+
+      const STATUS_LABELS = {
+        downloading: 'Bajando',
+        queued: 'En cola',
+        paused: 'En pausa',
+        delay: 'En espera',
+        completed: 'Completa',
+        failed: 'Falló',
+        warning: 'Con avisos',
+        downloadClientUnavailable: 'qBittorrent no disponible',
+        fallback: 'En cola',
+      };
+
+      function downloadLabel(item) {
+        return TRACKED_LABELS[item.trackedState] ?? STATUS_LABELS[item.status] ?? item.status ?? 'Sin estado';
+      }
+
+      /** Línea de resumen de los programas: cuenta caídos y avisos, y dice si todo está bien. */
+      function summarize(parts) {
+        const count = (...states) => parts.filter((part) => states.includes(part.state)).length;
+        const failing = count('down', 'error');
+        const warning = count('warning');
+        if (!failing && !warning) return `Los ${parts.length} programas funcionan`;
+        const pieces = [];
+        if (failing) pieces.push(failing === 1 ? '1 sin responder o sin datos' : `${failing} sin responder o sin datos`);
+        if (warning) pieces.push(warning === 1 ? '1 con avisos' : `${warning} con avisos`);
+        return `${count('ok')} de ${parts.length} funcionan bien · ${pieces.join(' · ')}`;
+      }
+
+      function downloadsMeta(downloads) {
+        const total = downloads.items.length;
+        if (total === 0) return downloads.errors.length ? 'No se pudo leer todo' : 'Nada';
+        return total === 1 ? '1 descarga' : `${total} descargas`;
+      }
+
+      function partsMeta(parts) {
+        const failing = parts.filter((part) => part.state !== 'ok').length;
+        if (failing === 0) return 'Todo bien';
+        return failing === 1 ? '1 con problemas' : `${failing} con problemas`;
+      }
+
+      function disksMeta(disks) {
+        if (!disks.items.length) return 'Sin datos';
+        const low = disks.items.filter((disk) => disk.low).length;
+        if (low === 0) return 'Con espacio';
+        return low === 1 ? '1 con poco espacio' : `${low} con poco espacio`;
+      }
+
+      function requestsMeta(requests) {
+        if (requests.error) return 'Sin datos';
+        if (requests.total === 0) return 'Ninguno';
+        return requests.total === 1 ? '1 pedido' : `${requests.total} pedidos`;
+      }
+
+      const REQUEST_STATUS_LABELS = {
+        approval: 'Espera aprobación',
+        approved: 'Aprobado, todavía sin bajar',
+        failed: 'Falló',
+        notGrabbed: 'En Radarr o Sonarr, sin descarga: buscalo de nuevo ahí',
+        notReleased: 'Todavía no salió',
+      };
+
+      function requestFacts(request) {
+        const facts = [REQUEST_STATUS_LABELS[request.status] ?? 'En proceso', request.kind === 'tv' ? 'Serie' : 'Película'];
+        if (request.seasons.length) {
+          const label = request.seasons.length === 1 ? 'temporada' : 'temporadas';
+          facts.push(`${label} ${request.seasons.join(', ')}`);
+        }
+        if (request.requestedBy) facts.push(`pedido por ${request.requestedBy}`);
+        if (request.createdAt) facts.push(new Date(request.createdAt).toLocaleDateString('es-AR'));
+        return facts.join(' · ');
+      }
+
+      const ACTION_LABELS = {
+        program: {
+          stop: ['Frenar', 'Frenando…'],
+          start: ['Levantar', 'Levantando…'],
+        },
+        connection: {
+          stop: ['Desconectar', 'Desconectando…'],
+          start: ['Conectar', 'Conectando…'],
+        },
+      };
+
+      const actionLabel = (action, busy, kind = 'program') => ACTION_LABELS[kind][action][busy ? 1 : 0];
+
+      /** Un programa que no responde se ofrece para levantar; cualquier otro, para frenar. */
+      const availableAction = (part) => (part.state === 'down' ? 'start' : 'stop');
+
+      /** Los programas a los que les corresponde esta acción. Tailscale no entra: es `bulk: false`. */
+      const partsForAction = (parts, action) =>
+        parts.filter((part) => part.control?.bulk !== false && part.control && availableAction(part) === action);
+
+      function formatClock(iso) {
+        return new Date(iso).toLocaleTimeString('es-AR', { hour12: false });
+      }
+
+      // --- Nombre del producto: el único lugar donde está escrito. ---
+      const PRODUCT_NAME = 'LP Cine Vault';
+
+      /** Parte el nombre para pintar en violeta su última palabra. Sin dos palabras, va entero. */
+      /** Un nombre con sigla adelante se muestra como la sigla y el resto en color. */
+      function brandParts(name) {
+        const tagged = /^([A-Z]{2,3}) (.+)$/.exec(name);
+        if (tagged) return [tagged[1] + ' ', tagged[2]];
+        const match = /^(.+?)([A-Z][a-z0-9]*)$/.exec(name);
+        return match ? [match[1], match[2]] : [name, ''];
+      }
+
+      const NO_DATA = '—';
+
+      /** Tiempo desde que arrancó el programa: "14d 08h", "3h 12m", "5m". Sin dato, una raya. */
+      function formatUptime(startedAt, now = Date.now()) {
+        const started = startedAt ? new Date(startedAt).getTime() : NaN;
+        if (!Number.isFinite(started) || started > now) return NO_DATA;
+        const minutes = Math.floor((now - started) / 60000);
+        const pad = (value) => String(value).padStart(2, '0');
+        if (minutes < 60) return `${minutes}m`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `${hours}h ${pad(minutes % 60)}m`;
+        return `${Math.floor(hours / 24)}d ${pad(hours % 24)}h`;
+      }
+
+      /** Un programa caído no tiene uptime, aunque quede un dato viejo. */
+      const partUptime = (part, now = Date.now()) => (part.state === 'down' ? NO_DATA : formatUptime(part.startedAt, now));
+
+      /** Hace cuánto: "2h ago". Vacío si no hay fecha. */
+      function timeAgo(iso, now = Date.now()) {
+        const then = iso ? new Date(iso).getTime() : NaN;
+        if (!Number.isFinite(then)) return '';
+        const minutes = Math.max(0, Math.floor((now - then) / 60000));
+        if (minutes < 1) return 'now';
+        if (minutes < 60) return `${minutes}m ago`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `${hours}h ago`;
+        return `${Math.floor(hours / 24)}d ago`;
+      }
+
+      function lastUpdateText(receivedAt, now = Date.now()) {
+        if (!receivedAt) return `Last update: ${NO_DATA}`;
+        const minutes = Math.floor((now - receivedAt) / 60000);
+        return minutes < 1 ? 'Last update: just now' : `Last update: ${minutes} min ago`;
+      }
+
+      /** Lo que responde está online, aunque tenga avisos. */
+      const servicesOnline = (parts) => parts.filter((part) => part.state !== 'down').length;
+
+      const STATUS_WORDS = { ok: 'Online', warning: 'Warning', error: 'Warning', down: 'Offline' };
+
+      const statusWord = (state) => STATUS_WORDS[state] ?? 'Warning';
+
+      const servicesMonitored = (parts) => `${parts.length} ${parts.length === 1 ? 'SERVICE' : 'SERVICES'} MONITORED`;
+
+      /** Uso de todos los discos juntos. Null si no hay ninguno con datos. */
+      function storageUsage(items) {
+        const disks = (items ?? []).filter((disk) => disk.totalBytes > 0 && typeof disk.freeBytes === 'number');
+        if (!disks.length) return null;
+        const totalBytes = disks.reduce((sum, disk) => sum + disk.totalBytes, 0);
+        const freeBytes = disks.reduce((sum, disk) => sum + disk.freeBytes, 0);
+        return {
+          totalBytes,
+          freeBytes,
+          usedBytes: totalBytes - freeBytes,
+          percent: Math.round(((totalBytes - freeBytes) / totalBytes) * 100),
+        };
+      }
+
+      const diskPercent = (disk) => (disk.totalBytes > 0 ? Math.round((1 - disk.freeBytes / disk.totalBytes) * 100) : 0);
+
+      const diskName = (disk) => (disk.label ? `${disk.id} ${disk.label}` : `Drive ${disk.id}`);
+
+      /** Estado de todo el panel, para el encabezado. Los discos con poco espacio también avisan. */
+      function globalStatus(parts, disks) {
+        const failing = parts.filter((part) => part.state === 'down' || part.state === 'error');
+        const warning = parts.filter((part) => part.state === 'warning');
+        const low = (disks?.items ?? []).filter((disk) => disk.low);
+        const names = (list) => list.map((part) => part.name).join(', ');
+        if (failing.length) {
+          return {
+            level: 'down',
+            title: failing.length === 1 ? `${failing[0].name} no responde bien` : `${failing.length} servicios no responden bien`,
+            text: summarize(parts),
+          };
+        }
+        if (warning.length || low.length) {
+          const pieces = [];
+          if (warning.length) pieces.push(`Avisos en ${names(warning)}`);
+          if (low.length) pieces.push(low.length === 1 ? `Poco espacio en ${low[0].id}` : `${low.length} discos con poco espacio`);
+          const count = warning.length + low.length;
+          return { level: 'warning', title: count === 1 ? 'Hay 1 aviso' : `Hay ${count} avisos`, text: pieces.join(' · ') };
+        }
+        return { level: 'ok', title: 'All systems operational', text: 'Your media center is running smoothly' };
+      }
+
+      /** Velocidad en MB/s, como pide el panel. Los bytes de qBittorrent son binarios, igual que formatBytes. */
+      function formatSpeed(bytesPerSecond) {
+        if (typeof bytesPerSecond !== 'number' || bytesPerSecond < 0) return NO_DATA;
+        const megabytes = bytesPerSecond / (1024 * 1024);
+        if (bytesPerSecond > 0 && megabytes < 0.1) return `<${number(0.1, 1)} MB/s`;
+        return `${number(megabytes, bytesPerSecond === 0 ? 0 : 1)} MB/s`;
+      }
+
+      /** La nota que reemplaza a la velocidad cuando no se puede leer. Null si está. */
+      function transferNote(status) {
+        if (status.transfer) return null;
+        if (status.transferBlocked) return 'Para ver la velocidad, activá "Omitir autenticación para clientes en localhost" en qBittorrent.';
+        return 'Sin datos de velocidad.';
+      }
+
+      /** Descargas de hoy, y por qué no está el número si falta. */
+      function downloadsToday(downloads) {
+        if (typeof downloads.today !== 'number') return { value: NO_DATA, note: 'Sin dato del backend' };
+        return { value: String(downloads.today), note: downloads.todayPartial ? 'Parcial: falta una fuente' : null };
+      }
+
+      /** La miniatura de TMDB. Solo una ruta simple: cualquier otra cosa se trata como sin póster. */
+      const posterUrl = (path) => (/^\/[\w.-]+$/.test(path ?? '') ? `https://image.tmdb.org/t/p/w92${path}` : null);
+
+      /** Qué decir cuando un programa cambia de estado entre dos lecturas. Null si no hay nada que avisar. */
+      function describeChange(part, previousState) {
+        if (!previousState || previousState === part.state) return null;
+        if (part.state === 'down') return `${part.name} dejó de responder`;
+        if (part.state === 'ok') return `${part.name} volvió a funcionar`;
+        if (part.state === 'warning') return `${part.name} tiene avisos`;
+        return `${part.name} responde, pero no se pudo leer`;
+      }
+
+      /** Valor de disponibilidad para graficar: arriba si funciona, abajo si está caído. */
+      const AVAILABILITY = { ok: 1, warning: 0.6, error: 0.6, down: 0 };
+
+      /**
+       * Guarda una muestra real en la serie, con un tope. Sin valor no guarda nada: un hueco nunca se rellena.
+       * gapMs evita juntar muchas muestras casi iguales si se actualiza seguido.
+       */
+      function addSample(history, key, value, now, gapMs, cap) {
+        if (typeof value !== 'number' || !Number.isFinite(value)) return history;
+        const series = history[key] ?? { at: 0, values: [] };
+        if (now - series.at < gapMs) return history;
+        series.values = [...series.values, value].slice(-cap);
+        series.at = now;
+        history[key] = series;
+        return history;
+      }
+
+      const SPARK_MIN_SLOTS = 12;
+
+      /**
+       * Puntos de una gráfica, alineados a la derecha: con pocas muestras se dibuja menos, no se estira.
+       * min y max fijan la escala; si faltan, sale de los datos, con minSpan para no exagerar variaciones chicas.
+       */
+      function sparkPoints(values, { width = 100, height = 30, min, max, minSpan = 0, pad = 2 } = {}) {
+        if (!values.length) return [];
+        const low = min ?? Math.min(...values);
+        const high = max ?? Math.max(...values);
+        const span = Math.max(high - low, minSpan) || 1;
+        const base = min === undefined && max === undefined ? (low + high) / 2 - span / 2 : low;
+        const slots = Math.max(values.length, SPARK_MIN_SLOTS);
+        const step = width / (slots - 1);
+        const start = width - step * (values.length - 1);
+        return values.map((value, index) => ({
+          x: start + step * index,
+          y: height - pad - ((value - base) / span) * (height - pad * 2),
+        }));
+      }
+
+      /** Línea suave que pasa por los puntos medios: nunca se sale de la escala. */
+      function sparkPath(points) {
+        if (points.length < 2) return '';
+        const fixed = (value) => Number(value.toFixed(2));
+        let path = `M${fixed(points[0].x)} ${fixed(points[0].y)}`;
+        for (let index = 1; index < points.length - 1; index += 1) {
+          const next = points[index + 1];
+          const current = points[index];
+          path += `Q${fixed(current.x)} ${fixed(current.y)} ${fixed((current.x + next.x) / 2)} ${fixed((current.y + next.y) / 2)}`;
+        }
+        const last = points[points.length - 1];
+        return `${path}L${fixed(last.x)} ${fixed(last.y)}`;
+      }
+      /** true si la versión publicada es más nueva que la propia. Acepta "v0.1.12" o "0.1.12". */
+      function isNewerVersion(latest, current) {
+        const parts = (text) => String(text ?? '').replace(/^v/, '').split('.').map((part) => Number.parseInt(part, 10) || 0);
+        const [a, b] = [parts(latest), parts(current)];
+        for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+          if ((a[index] ?? 0) !== (b[index] ?? 0)) return (a[index] ?? 0) > (b[index] ?? 0);
+        }
+        return false;
+      }
+
+      /** El APK para Android y el instalador para Windows. */
+      function pickReleaseAsset(assets, mobile) {
+        const extension = mobile ? '.apk' : '.exe';
+        return (assets ?? []).find((asset) => String(asset.name).toLowerCase().endsWith(extension)) ?? null;
+      }
+
+      // --- Fin de textos ---
+
+      // --- Dibujo ---
+      // Dibuja el estado. Todo pasa por textContent: los mensajes de los programas nunca se tratan como HTML.
+
+      /** Iconos de Lucide (lucide-static, licencia ISC). Solo el interior de cada SVG. */
+      const ICONS = {
+        "house": "<path d=\"M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8\"/><path d=\"M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/>",
+        "server": "<rect width=\"20\" height=\"8\" x=\"2\" y=\"2\" rx=\"2\" ry=\"2\"/><rect width=\"20\" height=\"8\" x=\"2\" y=\"14\" rx=\"2\" ry=\"2\"/><line x1=\"6\" x2=\"6.01\" y1=\"6\" y2=\"6\"/><line x1=\"6\" x2=\"6.01\" y1=\"18\" y2=\"18\"/>",
+        "download": "<path d=\"M12 15V3\"/><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><path d=\"m7 10 5 5 5-5\"/>",
+        "clapperboard": "<path d=\"m12.296 3.464 3.02 3.956\"/><path d=\"M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3z\"/><path d=\"M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/><path d=\"m6.18 5.276 3.1 3.899\"/>",
+        "database": "<ellipse cx=\"12\" cy=\"5\" rx=\"9\" ry=\"3\"/><path d=\"M3 5V19A9 3 0 0 0 21 19V5\"/><path d=\"M3 12A9 3 0 0 0 21 12\"/>",
+        "wifi": "<path d=\"M12 20h.01\"/><path d=\"M2 8.82a15 15 0 0 1 20 0\"/><path d=\"M5 12.859a10 10 0 0 1 14 0\"/><path d=\"M8.5 16.429a5 5 0 0 1 7 0\"/>",
+        "settings": "<path d=\"M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/>",
+        "circle-check": "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m16 9-5.5 5.5L8 12\"/>",
+        "clock": "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M12 6v6l4 2\"/>",
+        "refresh-cw": "<path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/>",
+        "copy": "<rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/>",
+        "check": "<path d=\"M20 6 9 17l-5-5\"/>",
+        "arrow-up": "<path d=\"m5 12 7-7 7 7\"/><path d=\"M12 19V5\"/>",
+        "arrow-down": "<path d=\"M12 5v14\"/><path d=\"m19 12-7 7-7-7\"/>",
+        "arrow-right": "<path d=\"M5 12h14\"/><path d=\"m12 5 7 7-7 7\"/>",
+        "arrow-up-right": "<path d=\"M7 7h10v10\"/><path d=\"M7 17 17 7\"/>",
+        "power": "<path d=\"M12 2v10\"/><path d=\"M18.4 6.6a9 9 0 1 1-12.77.04\"/>",
+        "play": "<path d=\"M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z\"/>",
+        "list": "<path d=\"M3 5h.01\"/><path d=\"M3 12h.01\"/><path d=\"M3 19h.01\"/><path d=\"M8 5h13\"/><path d=\"M8 12h13\"/><path d=\"M8 19h13\"/>",
+        "hard-drive": "<path d=\"M10 16h.01\"/><path d=\"M2.212 11.577a2 2 0 0 0-.212.896V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5.527a2 2 0 0 0-.212-.896L18.55 5.11A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z\"/><path d=\"M21.946 12.013H2.054\"/><path d=\"M6 16h.01\"/>",
+        "menu": "<path d=\"M4 5h16\"/><path d=\"M4 12h16\"/><path d=\"M4 19h16\"/>",
+      };
+
+      /** Logos de cada programa, de walkxcode/dashboard-icons, como data URI. */
+      const LOGOS = {
+        "radarr": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbDpzcGFjZT0icHJlc2VydmUiIGlkPSJMYXllcl8xIiB4PSIwIiB5PSIwIiB2ZXJzaW9uPSIxLjEiIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48c3R5bGU+LnN0MHtmaWxsOiNhOWE5YjZ9PC9zdHlsZT48ZyBpZD0iR3JvdXAtQ29weSIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoNzAgMjEpIj48cGF0aCBpZD0iU2hhcGUiIGQ9Im0xMC4zIDU5LjggMy45IDM3Mi40Yy0zMS40IDMuOS01NC45LTExLjgtNTQuOS00My4xbC0zLjktMzA5LjdjMC05OCA5MC4yLTEyMS41IDE0NS4xLTgyLjNsMjc4LjMgMTYwLjdjMzkuMiAyNy40IDQ3IDc4LjQgMjcuNCAxMTMuNy0zLjktMjcuNC0xNS43LTQzLjEtMzkuMi01OC44TDUzLjQgMzYuMkMyOS45IDIwLjYgMTAuMyAyNC41IDEwLjMgNTkuOCIgY2xhc3M9InN0MCIvPjxwYXRoIGlkPSJTaGFwZV8wMDAwMDExNDA0OTUzNTkzODU2MTc3MzgyMDAwMDAxODI3MTUyMzk0MDkxMzEwNTM0MV8iIGQ9Ik0tMTMuMiA0NTEuOGMyMy41IDcuOCA0NyAzLjkgNjYuNi03LjhsMzIxLjUtMTg4LjJjMTkuNiAyNy40IDE1LjcgNTQuOS03LjggNzAuNkw5Ni41IDQ4My4yYy0zOS4yIDE5LjYtOTAuMSAwLTEwOS43LTMxLjQiIGNsYXNzPSJzdDAiLz48cGF0aCBpZD0iU2hhcGVfMDAwMDAxNjU5MzU5MjQ0MTMyODY0MzMwNDAwMDAwMDM2NjgwMDI4MDc3OTM4NjI1NzZfIiBkPSJNODAuOSAzNDIgMjczIDIzMi4zIDg0LjggMTI2LjR6IiBzdHlsZT0iZmlsbDojZmZjMjMwIi8+PC9nPjwvc3ZnPg==",
+        "sonarr": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbDpzcGFjZT0icHJlc2VydmUiIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cGF0aCBkPSJNNTExLjggMjU2YzAgNzAuNC0yNC45IDEzMC44LTc0LjYgMTgxLjEtMS43IDItMy41IDMuOC01LjUgNS40LTguMiA4LTE2LjggMTUuMy0yNiAyMS44UTM0MS4wNSA1MTIgMjU2LjMgNTEyYy01Ni42IDAtMTA2LjMtMTUuOS0xNDkuMi00Ny43LTExLjMtOC0yMi0xNy4xLTMxLjktMjcuM0MzNi41IDM5OC43IDEyLjggMzU0IDQgMzAzLjJjLTEuNy05LjktMi45LTIwLTMuNC0zMC4yLS4yLTUuNy0uNC0xMS4zLS40LTE3IDAtNiAuMS0xMS43LjQtMTcuMSAwLS42LjItMS4xLjUtMS43IDMuNy02Mi44IDI4LjQtMTE3IDc0LjEtMTYyLjhDMTI1LjUgMjQuOCAxODUuOCAwIDI1Ni4yIDBjNzAuNyAwIDEzMSAyNC44IDE4MC45IDc0LjVxNzQuNyA3NS45IDc0LjcgMTgxLjUiIHN0eWxlPSJmaWxsLXJ1bGU6ZXZlbm9kZDtjbGlwLXJ1bGU6ZXZlbm9kZDtmaWxsOiNlZWUiLz48cGF0aCBkPSJtNDU5LjcgMTAwLjMtNTIuOSA1Mi45Yy0zMC45IDMwLjktMzMuNiA1Ny44LTMzLjYgMTA1LjMgMCA0Mi4zIDYuNyA4MS4xIDM4LjIgMTEyLjYgMjMgMjMgNDQuOSA0NC43IDQ0LjkgNDQuNy01LjkgNy4yLTEyLjMgMTQuMy0xOS4xIDIxLjItMS43IDItMy41IDMuOC01LjUgNS40LTYgNS45LTEyLjIgMTEuNC0xOC42IDE2LjRsLTQxLjQtNDEuNEMzMzQuOSAzODAuNiAzMDUuNiAzNzcgMjU3IDM3N2MtNDYuNyAwLTc4LjQgNC4zLTExMi42IDM4LjUtMjAuNCAyMC40LTQzLjggNDMuOS00My44IDQzLjktOC45LTYuOC0xNy4zLTE0LjItMjUuMy0yMi40LTYuNi02LjYtMTIuOC0xMy40LTE4LjUtMjAuMyAwIDAgMjMuMS0yMy4yIDQ1LjItNDUuMyAzMi43LTMyLjcgMzgtNzAuNiAzOC0xMTMgMC00MS4zLTYuOC03OS44LTM2LjgtMTA5LjlDODIuMiAxMjcuNyA1My4zIDk5IDUzLjMgOTljNi43LTguNSAxNC0xNi43IDIxLjgtMjQuNSA2LjktNi44IDE0LTEzLjEgMjEuMi0xOWw0OCA0OGMzMC43IDMwLjcgNzAgMzguNiAxMTIuNCAzOC42IDQzLjYgMCA4Mi44LTguNCAxMTQuNy00MC40QzM5MSA4Mi4xIDQxNyA1Ni4zIDQxNyA1Ni4zYzYuOCA1LjYgMTMuNSAxMS42IDIwLjEgMTguMiA4LjMgOC4zIDE1LjggMTYuOSAyMi42IDI1LjgiIHN0eWxlPSJmaWxsLXJ1bGU6ZXZlbm9kZDtjbGlwLXJ1bGU6ZXZlbm9kZDtmaWxsOiMzYTNmNTEiLz48cGF0aCBkPSJNMTg2IDI2OS4xYy0uNS0yLjgtLjgtNS41LS45LTguNC0uMS0xLjYtLjEtMy4xLS4xLTQuNyAwLTEuNyAwLTMuMi4xLTQuNyAwLS4yIDAtLjMuMS0uNSAxLTE3LjQgNy45LTMyLjQgMjAuNS00NS4xIDEzLjktMTMuOCAzMC42LTIwLjcgNTAuMi0yMC43czM2LjMgNi45IDUwLjIgMjAuN2MxMy44IDE0IDIwLjcgMzAuOCAyMC43IDUwLjNzLTYuOSAzNi4yLTIwLjcgNTAuMmMtLjUuNS0xIDEuMS0xLjUgMS41cS0zLjQ1IDMuMy03LjIgNi0xOCAxMy4yLTQxLjQgMTMuMmMtMjMuNCAwLTI5LjQtNC40LTQxLjMtMTMuMi0zLjEtMi4yLTYuMS00LjctOC45LTcuNi0xMC44LTEwLjYtMTcuMy0yMi45LTE5LjgtMzciIHN0eWxlPSJmaWxsLXJ1bGU6ZXZlbm9kZDtjbGlwLXJ1bGU6ZXZlbm9kZDtmaWxsOiMwY2YiLz48cGF0aCBkPSJtMzcyLjcgMTQxLTM1LjQgMzQuNk03Mi45IDc2LjhsOTYuNSA5Ni4xbTE5OS43IDE5OC45IDY1LjYgNjcuOW00LjQtMzYzLjNMMzcyLjcgMTQxTTc2LjYgNDM4LjVsNjQuNi02NC43IiBzdHlsZT0iZmlsbDpub25lO3N0cm9rZTojMGNmO3N0cm9rZS13aWR0aDoyO3N0cm9rZS1taXRlcmxpbWl0OjEiLz48cGF0aCBkPSJtMzcyLjcgMTQxLTQwIDQwLjZtLTE5My4zLTM4LjUgNDAuNiA0MC41TTE0MSAzNzRsMzkuNS00MS4xbTE0Ni4yLTMuMyA0Mi42IDQyLjQiIHN0eWxlPSJmaWxsOm5vbmU7c3Ryb2tlOiMwY2Y7c3Ryb2tlLXdpZHRoOjc7c3Ryb2tlLW1pdGVybGltaXQ6MSIvPjwvc3ZnPg==",
+        "prowlarr": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbDpzcGFjZT0icHJlc2VydmUiIGlkPSJzdmcxMCIgeD0iMCIgeT0iMCIgdmVyc2lvbj0iMS4xIiB2aWV3Qm94PSIwIDAgNTEyIDUxMiI+PHN0eWxlPi5zdDR7ZmlsbDojZGVlNmUzfS5zdDV7ZmlsbDojZDQ1NDFlfS5zdDZ7ZmlsbDojODUyZTFifS5zdDd7ZmlsbDojZmZmfS5zdDExe2ZpbGw6IzZmMjcxN30uc3QxM3tmaWxsOiM5NDQwMWR9LnN0MTV7ZmlsbDojYzc0ZDFmfS5zdDE3e2ZpbGw6I2ZkZGQwNH0uc3QxOHtmaWxsOiMzOTE5MTN9PC9zdHlsZT48ZyBpZD0iZzE4IiB0cmFuc2Zvcm09Im1hdHJpeCgxLjMzMzMzIDAgMCAtMS4zMzMzMyAxOTguNjI4IDUxNS44MzcpIj48ZyBpZD0iZzIyNDgiIHRyYW5zZm9ybT0idHJhbnNsYXRlKDQyNS4wOTcgLTExMjMuMzQ5KXNjYWxlKDQuMDk2KSI+PGNpcmNsZSBpZD0icGF0aDIxODgiIGN4PSItOTMuMyIgY3k9IjMyMS44IiByPSI0NSIgc3R5bGU9ImZpbGwtcnVsZTpldmVub2RkO2NsaXAtcnVsZTpldmVub2RkO2ZpbGw6I2ZmZTZkNSIvPjxwYXRoIGlkPSJwYXRoNTY4IiBkPSJtLTEyNC4xIDMxMy42IDguMSA5LjUgNjAuNy4yLTcuOS05Ljd6IiBzdHlsZT0iZmlsbDojODMzMzFiIi8+PHBhdGggaWQ9InBhdGg1NzAiIGQ9Ik0tMTI0LjEgMzEzLjZ2LTI1LjVjNC42LS4yIDguMS0yIDguMS00LjFoNDcuMmMtLjQuNS0uNiAxLjEtLjYgMS43IDAgMi4yIDIuNyA0IDYuMiA0LjJ2MjMuN3oiIHN0eWxlPSJmaWxsOiNmOGEzN2IiLz48cGF0aCBpZD0icGF0aDU3MiIgZD0iTS04OS4yIDMwOS4zYzEgLjUgMi41IDIuMSAxLjYgMy43LS4yLjMtLjMuNS0uNS42aDQuMWMtLjUtMS4yLTIuNC0yLjYtMi40LTIuNnMtLjItLjMtMS0xYy0uNi0uMy0xLjMtLjYtMS44LS43bS0xMi4xLjFjLS41LjItMS4yLjYtMS43IDEuMi0uOS45LTEgMi4xLTEgMi4xbC0uNiAxaDIuNGMtLjItLjEtLjMtLjMtLjUtLjYtLjktMS42LjUtMy4xIDEuNC0zLjdtMTEuMi40Yy0uNS4xLTEuNS4yLTIuNS41LTEuNS41LTIuMyAxLjYtMi4zIDEuNnMtMS42LTEtMy44LTEuNGMtLjctLjEtMS4yLS4yLTEuNS0uMiAwIC43LS4yIDEuNS0uMiAxLjVzLS40IDEuMy0xIDEuN2gxMi42Yy0uNi0uNC0xLTEuNy0xLTEuN3MtLjMtMS4xLS4zLTIiIHN0eWxlPSJmaWxsOiNkYTg0NWQiLz48cGF0aCBpZD0icGF0aDU3NCIgZD0iTS0xMDAuNSAzMTEuOXMuNS0yLjQgMC0yLjctMy41IDEuOC0yLjIgMy45YzEuMiAyIDIuMi0xLjIgMi4yLTEuMiIgY2xhc3M9InN0NCIvPjxwYXRoIGlkPSJwYXRoNTc2IiBkPSJNLTg5LjkgMzExLjlzLS41LTIuNCAwLTIuNyAzLjUgMS44IDIuMiAzLjljLTEuMiAyLTIuMi0xLjItMi4yLTEuMiIgY2xhc3M9InN0NCIvPjxwYXRoIGlkPSJwYXRoNTc4IiBkPSJNLTEwNy43IDMzMi4xYy42LTIuNy0xLjItNS4zLTMuOC01LjgtMi43LS42LTUuMyAxLjItNS44IDMuOC0uNiAyLjcgMS4yIDUuMyAzLjggNS44IDIuNi42IDUuMi0xLjEgNS44LTMuOCIgY2xhc3M9InN0NSIvPjxwYXRoIGlkPSJwYXRoNTgwIiBkPSJNLTEwOS42IDMzNS4xYy0xLjEuOC0yLjUgMS4xLTMuOS44LTIuNy0uNi00LjQtMy4yLTMuOC01LjguMS0uNi4zLTEuMS42LTEuNiAyLjEuNyA1LjQgMi41IDcuMSA2LjYiIGNsYXNzPSJzdDYiLz48cGF0aCBpZD0icGF0aDU4MiIgZD0iTS0xMDkuOSAzMzEuNmMuMy0xLjUtLjYtMi45LTIuMS0zLjMtMS41LS4zLTIuOS42LTMuMyAyLjEtLjMgMS41LjYgMi45IDIuMSAzLjMgMS42LjQgMy0uNiAzLjMtMi4xIiBjbGFzcz0ic3Q3Ii8+PHBhdGggaWQ9InBhdGg1ODQiIGQ9Ik0tNzYuMSAzMzNjLTEuMSAwLTIuMi43LTIuNiAxLjktLjUgMS40LjMgMyAxLjcgMy40LjguMyA0LjYgMS44IDMuNSA1LjQtLjggMi42LTIuNCAzLTcgMy41LS45LjEtMS43LjItMi42LjMtMy4zLjUtNS43IDEuOC03LjIgNC0yLjIgMy4yLTEuMyA2LjktMS4yIDcuMy40IDEuNSAxLjkgMi4zIDMuMyAyIDEuNS0uNCAyLjMtMS45IDItMy4zIDAgMC0uNC0xLjcuNS0yLjkuNi0uOSAxLjctMS40IDMuNC0xLjZsMi40LS4zYzQuMy0uNSA5LjctMSAxMS43LTcuMiAyLjEtNi42LTMtMTAuOS03LTEyLjItLjMtLjMtLjYtLjMtLjktLjMiIHN0eWxlPSJmaWxsOiNlMjU5MWUiLz48cGF0aCBpZD0icGF0aDU4OCIgZD0ibS04NS44IDM1NC41LS4xLjFjLTEuOC0xLjEtNC4xLTEuNC01LjMtMS40LjItLjYuNS0xLjEuOS0xLjcuNS0uNyAxLjEtMS4zIDEuOC0xLjkgMi40LjQgNC4zIDIuMiA1LjQgMy40cS0xLjk1LjQ1LTIuNyAxLjUiIGNsYXNzPSJzdDYiLz48cGF0aCBpZD0icGF0aDU5MCIgZD0iTS04MCAzNDcuMWMyLS4yIDMuMy0uNCA0LjMtLjguNyAxLjEgMS42IDMgMiA1LjEtMS40LjYtMyAuOS00LjUgMS4xLjEtMS41IDAtMy44LTEuOC01LjQiIGNsYXNzPSJzdDYiLz48cGF0aCBpZD0icGF0aDU5MiIgZD0iTS02OCAzNDAuM2MuMyAxLjIuMyAyLjYgMCA0LjEtLjUtLjQtMS4yLS44LTIuMS0xLjEtMS41LS40LTIuNS0uNC0zLjItLjMuMy0xLjUtLjMtMi42LTEuMS0zLjMgMi40LS45IDQuOC0uMiA2LjQuNiIgY2xhc3M9InN0NiIvPjxwYXRoIGlkPSJwYXRoNTk0IiBkPSJNLTczLjMgMzQxLjh2MS4yYzAgLjItLjEuNS0uMi43LjEtLjIuMS0uMy4xLS41LjItLjUuMi0xIC4xLTEuNG0tLjEgMS45Yy0uNCAxLjMtMS4xIDIuMS0yLjIgMi42IDEuMS0uNSAxLjctMS4zIDIuMi0yLjZtLTYuNiAzLjRjLS4yIDAtLjQgMC0uNS4xLS45LjEtMS43LjItMi42LjNoLS4xLjFjLjktLjEgMS44LS4yIDIuNi0uMy4yLS4xLjQtLjEuNS0uMW0tMy4zLjQiIHN0eWxlPSJmaWxsOiM4M2JhZDIiLz48cGF0aCBpZD0icGF0aDU5NiIgZD0iTS02OC40IDMzOS4xYy0uMy4yLS42LjQtLjkuNy41LjIuOS40IDEuMy42LS4xLS41LS4yLS45LS40LTEuM20tNCA0Yy0uNCAwLS43IDAtLjkuMSAwIC4yLS4xLjMtLjEuNS0uNCAxLjMtMS4xIDIuMS0yLjIgMi42LjIuNC41LjkuOCAxLjUgMS40LS42IDIuMy0xLjQgMy0yLjhxLjQ1LS45LjMtMS44Yy0uMy0uMS0uNi0uMS0uOS0uMW0tNy42IDRjLS4yIDAtLjQgMC0uNS4xLS45LjEtMS43LjItMi42LjNoLS4xYy0yLjQuNC00LjQgMS4yLTUuOCAyLjZsLjUtLjVjLjMgMCAuNi4xLjguMiAxLjQtLjQgMy4xLS44IDUuMi0uOSAxLjQtLjEgMi42LS4yIDMuNy0uMy0uMy0uNS0uNi0xLTEuMi0xLjUiIHN0eWxlPSJmaWxsOiNiYTRhMWYiLz48cGF0aCBpZD0icGF0aDU5OCIgZD0iTS04OC42IDM0OS42Yy0uMi4xLS40LjMtLjUuNS0uMi4xLS4zLjMtLjQuNC41LS4yIDEuMS0uNSAxLjgtLjctLjMtLjEtLjYtLjEtLjktLjIiIGNsYXNzPSJzdDExIi8+PHBhdGggaWQ9InBhdGg2MDAiIGQ9Ik0tNzUuNiAzNDYuM2MtMSAuNC0yLjQuNi00LjMuOHEuNzUuNzUgMS4yIDEuNWMxLjYtLjIgMi45LS40IDQtLjhxLS42LS45LS45LTEuNSIgY2xhc3M9InN0MTEiLz48cGF0aCBpZD0icGF0aDYwMiIgZD0iTS02OS4zIDMzOS44Yy0xLjIuOC0yLjUgMS41LTQgMiAuMS40LjEuOSAwIDEuNC4yIDAgLjUtLjEuOS0uMS4zIDAgLjYgMCAuOS4xIDAtLjMtLjEtLjYtLjEtLjggMS4zLS42IDIuNS0xLjIgMy42LTItLjQtLjMtLjktLjUtMS4zLS42IiBjbGFzcz0ic3QxMSIvPjxwYXRoIGlkPSJwYXRoNjA0IiBkPSJNLTY5LjEgMzQ0LjlzLTIuMiAzLjEtNSA0LjZjLjEuNC4yLjcuMyAxLjEuNS0uMi45LS41IDEuMi0uOCAyLjUtMS45IDMuNS00LjkgMy41LTQuOW0tOS4xIDYuM2MtMS42LjYtMi44LjktMi44LjlzMS4yIDAgMi44LS4zeiIgc3R5bGU9ImZpbGw6I2U2NjczMyIvPjxwYXRoIGlkPSJwYXRoNjA2IiBkPSJNLTc0LjEgMzQ5LjZjLS4yLjEtLjUuMi0uNy40LTEuMi41LTIuMy45LTMuMyAxLjN2LjZjMS40LS4yIDMtLjYgNC4zLTEuMi0uMS0uNC0uMi0uOC0uMy0xLjEiIGNsYXNzPSJzdDEzIi8+PHBhdGggaWQ9InBhdGg2MDgiIGQ9Ik0tOTguOSAzMzYuMnM3LjIgOC41IDIxLjkgNi41YzE0LjctMi4xIDIwLjEtMjEuMiAyMC4xLTIxLjJsLTYuMy03LjloLTM1Ljd6IiBzdHlsZT0iZmlsbDojZWY1ZDIyIi8+PHBhdGggaWQ9InBhdGg2MTAiIGQ9Ik0tOTYuNiAzMzguM2MxLjYuNCA0IC44IDcuOS41IDkuMy0uNiAyMS4zLTE1LjUgMjEuMy0xNS41cy01LjMgMTYuOS0yMi4zIDE4LjVjLTMuMS0xLTUuNC0yLjQtNi45LTMuNSIgY2xhc3M9InN0NiIvPjxwYXRoIGlkPSJwYXRoNjEyIiBkPSJNLTY3LjYgMzE2aC0yLjFjLS42IDEuNi0zLjUgOS4yLTguMSAxMy4yLTMuOCAzLjMtOS4zIDcuMS0xNi4yIDcuNGgxYzUgMCA5LjMtMS44IDEyLjctNC4xdi4yYy4xLjcuNCAxLjMuOCAxLjkgMi44LTIgNS40LTQuNCA3LjQtNi41LS41LS41LTEuMS0uOC0xLjctMS4xIDMuNi00IDUuOC05LjYgNi4yLTExbS0zLjEgMTMuOWMtMS40IDIuMi0zLjQgNC42LTUuOSA2LjYuMSAwIC4xIDAgLjIuMWguMWMuMSAwIC4zIDAgLjQuMWgxLjFjLjIgMCAuMyAwIC41LS4xIDIuNy0uNiA0LjQtMy4yIDMuOC01LjggMC0uNC0uMS0uNi0uMi0uOSIgY2xhc3M9InN0MTUiLz48cGF0aCBpZD0icGF0aDYxNCIgZD0iTS03MS45IDMyOC4yYy0yIDIuMS00LjYgNC41LTcuNCA2LjUuMy40LjcuOCAxLjEgMS4xLjEuMS4zLjIuNC4zcy4zLjIuNC4yYy4xLjEuMy4xLjQuMmguMWMuMSAwIC4xIDAgLjIuMSAyLjYtMi4xIDQuNS00LjUgNS45LTYuNi0uMS0uMy0uMi0uNS0uNC0uNy0uMS0uNS0uNC0uOC0uNy0xLjEiIGNsYXNzPSJzdDExIi8+PHBhdGggaWQ9InBhdGg2MTYiIGQ9Ik0tODIuMiAzMzIuOGMtLjYtMi43IDEuMi01LjMgMy44LTUuOCAyLjctLjYgNS4zIDEuMiA1LjggMy44LjYgMi43LTEuMiA1LjMtMy44IDUuOHMtNS4zLTEuMi01LjgtMy44IiBjbGFzcz0ic3Q1Ii8+PHBhdGggaWQ9InBhdGg2MTgiIGQ9Ik0tODAuMyAzMzUuN2MxLjEuOCAyLjUgMS4xIDMuOS44IDIuNy0uNiA0LjQtMy4yIDMuOC01LjgtLjEtLjYtLjMtMS4xLS42LTEuNi0yLjIuOC01LjUgMi41LTcuMSA2LjYiIGNsYXNzPSJzdDYiLz48cGF0aCBpZD0icGF0aDYyMCIgZD0iTS04MC4xIDMzMi4zYy0uMy0xLjUuNi0yLjkgMi4xLTMuMyAxLjUtLjMgMi45LjYgMy4zIDIuMS4zIDEuNS0uNiAyLjktMi4xIDMuMy0xLjUuMy0zLS42LTMuMy0yLjEiIGNsYXNzPSJzdDciLz48cGF0aCBpZD0icGF0aDYyMiIgZD0ibS0xMTcuOSAzMTMuNi0yLjQgMi41czcuNyAxNS43IDE4LjQgMTkuNGMxMC42IDMuNiAxOS0xLjggMjQuMi02LjNzOC4yLTEzLjUgOC4yLTEzLjVsLTEuOS0yLjF6IiBzdHlsZT0iZmlsbDojZjQ2YTJmIi8+PHBhdGggaWQ9InBhdGg2MjQiIGQ9Ik0tMTA1LjYgMzI5LjFzOC43IDYuOSAxMC40IDYuOSAxMC02IDEwLTZsLTEuNC0xLjdzLTcuMyA1LjktOC43IDUuOS04LjItNS45LTguMi01Ljl6IiBjbGFzcz0ic3Q2Ii8+PHBhdGggaWQ9InBhdGg2MjYiIGQ9Ik0tMTAxLjMgMzI2LjVzNSA0LjIgNi40IDQuMiA2LjItMy43IDYuMi0zLjdsLTEuMy0yLjVzLTMuOCA0LjEtNC45IDQuMS01LjQtMy44LTUuNC0zLjh6IiBjbGFzcz0ic3Q2Ii8+PHBhdGggaWQ9InBhdGg2MjgiIGQ9Im0tMTIwLjMgMzE2LjEgNi43IDIuM3MtMi4yIDcgNC4xIDEwLjQgOS4xLS4xIDkuOS0yLjFjLjktMiAuOS03LjMuOS03LjNoNy41cy0uMSA3LjkgMy4xIDEwLjEgOCAyLjUgOS45LTEuNmMxLjktNC4yIDAtNy44IDAtNy44bDguNi00LjMtMS45LTIuMWgtNDYuNHoiIGNsYXNzPSJzdDciLz48cGF0aCBpZD0icGF0aDYzMCIgZD0iTS0xMDAuNSAzMjMuM2MwLTEuNi0xLjMtMy0zLTMtMS42IDAtMyAxLjMtMyAzIDAgMS42IDEuMyAzIDMgM3MzLTEuMyAzLTMiIGNsYXNzPSJzdDE3Ii8+PHBhdGggaWQ9InBhdGg2MzIiIGQ9Ik0tMTAxLjMgMzIzLjNjMC0xLjItMS0yLjEtMi4xLTIuMS0xLjIgMC0yLjEgMS0yLjEgMi4xczEgMi4xIDIuMSAyLjEgMi4xLS45IDIuMS0yLjEiIGNsYXNzPSJzdDE4Ii8+PHBhdGggaWQ9InBhdGg2MzQiIGQ9Ik0tMTAzLjkgMzI0LjZjMC0uNS0uNC0uOS0uOS0uOXMtLjkuNC0uOS45LjQuOS45LjkuOS0uNC45LS45IiBjbGFzcz0ic3Q3Ii8+PHBhdGggaWQ9InBhdGg2MzYiIGQ9Ik0tODMuNiAzMjMuM2MwLTEuNi0xLjMtMy0zLTMtMS42IDAtMyAxLjMtMyAzIDAgMS42IDEuMyAzIDMgM3MzLTEuMyAzLTMiIGNsYXNzPSJzdDE3Ii8+PHBhdGggaWQ9InBhdGg2MzgiIGQ9Ik0tODQuNCAzMjMuM2MwLTEuMi0xLTIuMS0yLjEtMi4xLTEuMiAwLTIuMSAxLTIuMSAyLjFzLjkgMi4xIDIuMSAyLjFjMS4xIDAgMi4xLS45IDIuMS0yLjEiIGNsYXNzPSJzdDE4Ii8+PHBhdGggaWQ9InBhdGg2NDAiIGQ9Ik0tODcgMzI0LjZjMC0uNS0uNC0uOS0uOS0uOXMtLjkuNC0uOS45LjQuOS45LjkuOS0uNC45LS45IiBjbGFzcz0ic3Q3Ii8+PHBhdGggaWQ9InBhdGg2NDIiIGQ9Ik0tNjMuMiAzMTMuNmgtNi4ybDEuOSAyLjFzMCAuMS0uMS4zaDQuNGw1LjggNy4xYy40LTEgLjUtMS42LjUtMS42eiIgY2xhc3M9InN0MTUiLz48cGF0aCBpZD0icGF0aDY0NCIgZD0iTS02OS40IDMxMy42aC0yLjFsMS45IDIuMXMwIC4xLS4xLjNoMi4xYy4xLS4yLjEtLjMuMS0uM3oiIHN0eWxlPSJmaWxsOiNhMzNmMWUiLz48cGF0aCBpZD0icGF0aDY0NiIgZD0ibS02OS41IDMxNS43LS42LjNoLjVjMC0uMi4xLS4zLjEtLjMiIHN0eWxlPSJmaWxsOiNkZTU4MWQiLz48cGF0aCBpZD0icGF0aDY0OCIgZD0iTS03MS41IDMxMy42aC00Ni40bC0yLjQgMi40aDUwLjFsLjYtLjN6IiBzdHlsZT0iZmlsbDojZDVkMGNkIi8+PHBhdGggaWQ9InBhdGg2NTAiIGQ9Ik0tOTkuNiAzMjAuMXMtMi44LS43LTMuOS0zLjRjLTEtMi43LjQtNC43IDIuNy01LjIgMi40LS41IDUuOCAxLjIgNS44IDEuMnMyLjgtMi43IDYuMi0yIDQuNSA0LjUgMi44IDYuOWMtMS42IDIuMy01LjYgMi42LTUuNiAyLjZzLTYuMS0xLjgtOC0uMSIgY2xhc3M9InN0NyIvPjxwYXRoIGlkPSJwYXRoNjUyIiBkPSJNLTk0LjkgMzEyLjdzLjEtLjEuNC0uM3Y0LjNjMCAuMi0uMi4zLS4zLjMtLjIgMC0uMy0uMi0uMy0uM3YtNC4xYy4xIDAgLjIuMS4yLjEiIHN0eWxlPSJmaWxsOiNhNmI5YjUiLz48cGF0aCBpZD0icGF0aDY1NCIgZD0iTS05MS4yIDMxNy4xczIuMiAyLjYuOCAzLjctMi44LS44LTQuNi0uNi0zLjcgMS41LTQuNC4zYy0uOC0xLjMgMS4yLTIuOCAxLjItMi44cy41IDEuMyAxLjYuNy4yLTIgLjItMiAuOC0uNiAxLjUtLjcgMS44LjggMS44LjgtLjYgMS41LjYgMi4xYzEuMS42IDEuMy0xLjUgMS4zLTEuNSIgY2xhc3M9InN0NiIvPjxwYXRoIGlkPSJwYXRoNjU2IiBkPSJNLTExMyAzMjUuMXMtMS43LTIuMi0xLjUtNS40Yy4xLTMuMiA0LjgtNi4xIDQuOC02LjFsLTEuOCAyLjhjLS41LjctLjMgMS42LjQgMi4ybDIuOCAyLjNzLTMuOC0xLjItNC41LS4zLS4yIDQuNS0uMiA0LjUiIGNsYXNzPSJzdDYiLz48cGF0aCBpZD0icGF0aDY1OCIgZD0iTS03Ny44IDMyN3MtLjMtMi44LTEtNC4yLTMuMS0uOC0zLjEtLjggMi43LTEuNCAyLjctMi4yYzAtLjktMS44LTMuNi0xLjgtMy42czUuOSAzLjcgMy4yIDEwLjgiIGNsYXNzPSJzdDYiLz48cGF0aCBpZD0icGF0aDY2MCIgZD0iTS0xMTMuMSAzMTMuNnMtMS4yLjktMS45IDIuMWMtLjggMS4yLTEgMi0xIDJzLS4xLTEuNi40LTIuNy44LTEuNC44LTEuNHoiIGNsYXNzPSJzdDYiLz48cGF0aCBpZD0icGF0aDY2MiIgZD0iTS03Ni45IDMxMy42czEuMS45IDIuMSAyLjYgMS4zIDMuOSAxLjMgMy45LjUtMy4yLjItNC41Yy0uMy0xLjQtLjgtMS45LS44LTEuOWgtMi44IiBjbGFzcz0ic3Q2Ii8+PHBhdGggaWQ9InBhdGg2NjQiIGQ9Ik0tNzIuNSAzNDEuNGMtMS40LjYtMi45IDEtNC41IDEuMy0xLjQuMi0yLjYuMy0zLjkuMyAyLjQtLjYgNy40LTIuMSAxMS40LTUuOCA1LjUtNSA3LjYtOS42IDcuNi05LjZzLTMuMyA5LjEtMTAuNiAxMy44IiBjbGFzcz0ic3Q2Ii8+PHBhdGggaWQ9InBhdGg2NjYiIGQ9Ik0tNjkuMSAzMzUuM3MzLjYtMi44IDUuNy04LjMgMi4xLTYuOSAyLjEtNi45bC05IDExLjMgNi01LjVjLS4xIDAtLjMgMy4yLTQuOCA5LjQiIGNsYXNzPSJzdDYiLz48cGF0aCBpZD0icGF0aDY2OCIgZD0ibS01NS4zIDMyMy4zLTcuOS05Ljd2LTIyLjVjLjYuOCAxLjMgMS4yIDIgMS4yczEuNC0uNCAxLjktMS4xbDMuOSA3LjF2MjV6IiBzdHlsZT0iZmlsbDojZjY4NTRmIi8+PHBhdGggaWQ9InBhdGg2NzAiIGQ9Ik0tNzEuNyAzMDQuNmgzLjV2M2gxLjZsLTMuNCAzLjgtMy40LTMuOGgxLjZ2LTMiIGNsYXNzPSJzdDYiLz48cGF0aCBpZD0icGF0aDY3MiIgZD0iTS03MCAzMDMuN2gtMy40di0xLjJoNi43djEuMnoiIGNsYXNzPSJzdDYiLz48cGF0aCBpZD0icGF0aDY3NCIgZD0iTS03Mi4yIDMzOS40Yy0xLjcuNi00IDEuMi02LjUgMS4zaC0xYy0xLjQgMC0yLjgtLjEtNC4xLS4xbC0yLjEuNmMxLjYuNCAzLjYuNyA1LjguNy42IDAgMS4yIDAgMS44LS4xLjgtLjEgMS42LS4yIDIuMy0uMyAxLjEtLjYgMi41LTEuMyAzLjgtMi4xIiBzdHlsZT0iZmlsbDojZjA2YzM0Ii8+PHBhdGggaWQ9InBhdGg2NzYiIGQ9Ik0tOTAgMzM5LjlzMS42LjcgNCAxLjNsMi4xLS42Yy0zLjMtLjMtNi4xLS43LTYuMS0uNyIgY2xhc3M9InN0MTMiLz48cGF0aCBpZD0icGF0aDY3OCIgZD0iTS02OS41IDMzOC4ycy0xIC42LTIuNyAxLjJjLTEuMy45LTIuNiAxLjUtMy45IDIuMSA0LjYtMSA2LjYtMy4zIDYuNi0zLjMiIGNsYXNzPSJzdDEzIi8+PHBhdGggaWQ9InBhdGgxMTMxIiBkPSJNLTkzLjMgMzY4LjdjLTI1LjkgMC00Ni45LTIxLTQ2LjktNDYuOXMyMS00Ni45IDQ2LjktNDYuOSA0Ni45IDIxIDQ2LjkgNDYuOS0yMSA0Ni45LTQ2LjkgNDYuOW0wLTkuNGMyMC43IDAgMzcuNS0xNi44IDM3LjUtMzcuNXMtMTYuOC0zNy41LTM3LjUtMzcuNS0zNy41IDE2LjgtMzcuNSAzNy41IDE2LjggMzcuNSAzNy41IDM3LjUiIHN0eWxlPSJmaWxsLXJ1bGU6ZXZlbm9kZDtjbGlwLXJ1bGU6ZXZlbm9kZDtmaWxsOiNlNjYwMDEiLz48cGF0aCBpZD0icGF0aDU4NiIgZD0iTS04NS44IDM1NC41Yy0uOCAxLjItLjUgMi45LS41IDIuOS40IDEuNS0uNSAyLjktMiAzLjNzLTIuOS0uNS0zLjMtMmMtLjEtLjQtLjktMy44IDEtNi45IDEuNS4zIDMuNi45IDUuMSAyLjMgMCAuMi0uMi4zLS4zLjQiIGNsYXNzPSJzdDciLz48L2c+PC9nPjwvc3ZnPg==",
+        "bazarr": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCI+PGRlZnM+PGNsaXBQYXRoIGlkPSJhIj48cGF0aCBkPSJNMCA1MTJoNTEyVjBIMHoiLz48L2NsaXBQYXRoPjwvZGVmcz48ZyBjbGlwLXBhdGg9InVybCgjYSkiIHRyYW5zZm9ybT0ibWF0cml4KC4wOTM3NSAwIDAgLS4wOTM3NSAwIDQ4LjAyKSI+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTUwNiAyNTZDNTA2IDExNy45MyAzOTQuMDcgNiAyNTYgNlM2IDExNy45MyA2IDI1NnMxMTEuOTMgMjUwIDI1MCAyNTAgMjUwLTExMS45MyAyNTAtMjUwIi8+PHBhdGggZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwIiBzdHJva2UtbWl0ZXJsaW1pdD0iMTAiIHN0cm9rZS13aWR0aD0iMTIiIGQ9Ik01MDYgMjU2QzUwNiAxMTcuOTMgMzk0LjA3IDYgMjU2IDZTNiAxMTcuOTMgNiAyNTZzMTExLjkzIDI1MCAyNTAgMjUwIDI1MC0xMTEuOTMgMjUwLTI1MHoiLz48cGF0aCBkPSJNNDA2LjIgMTE5LjQ3YTIzNjggMjM2OCAwIDAgMC0zMDAuODIgMGMtMjUuNDE4IDEuNzQ3LTUwLjI0IDI0LjU1MS01My4zMSA1MC4wNDgtNi44NDcgNjAuMDg3LTYuODQ3IDEyMC4xNyAwIDE4MC4yNiAzLjA3IDI1LjQ5NiAyNy44OTIgNDguMyA1My4zMSA1MC4wNDhhMjM2OCAyMzY4IDAgMCAwIDMwMC44MiAwYzI1LjQxOS0xLjc0OCA1MC4yNC0yNC41NTIgNTMuMzExLTUwLjA0OCA2Ljg0Ni02MC4wODcgNi44NDYtMTIwLjE3IDAtMTgwLjI2LTMuMDcxLTI1LjQ5Ny0yNy44OTMtNDguMy01My4zMTEtNTAuMDQ4Ii8+PHBhdGggZmlsbD0iI2ZmZiIgZD0iTTM0OC4zNiAxNDUuMzFIMTYzLjIyYy01LjQ1MiAwLTkuOTE0IDQuNDYxLTkuOTE0IDkuOTEzdi4wMDFjMCA1LjQ1MiA0LjQ2MiA5LjkxMyA5LjkxNCA5LjkxM2gxODUuMTRjNS40NTIgMCA5LjkxMy00LjQ2MSA5LjkxMy05LjkxM3YtLjAwMWMwLTUuNDUyLTQuNDYxLTkuOTEzLTkuOTEzLTkuOTEzbTQ4LjE4IDM5LjgxSDExNS4wNDljLTUuNSAwLTkuOTk5IDQuNS05Ljk5OSA5Ljk5OXM0LjQ5OSA5Ljk5OSA5Ljk5OSA5Ljk5OUgzOTYuNTRjNS41IDAgOS45OTktNC40OTkgOS45OTktOS45OTkgMC01LjQ5OS00LjQ5OS05Ljk5OS05Ljk5OS05Ljk5OSIvPjwvZz48L3N2Zz4=",
+        "qbittorrent": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbDpzcGFjZT0icHJlc2VydmUiIHZpZXdCb3g9IjAgMCAxMDI0IDEwMjQiPjxsaW5lYXJHcmFkaWVudCBpZD0iYSIgeDE9Ii00NDYuMjk4IiB4Mj0iLTQ0NS44NzUiIHkxPSIxMDUyLjkyNCIgeTI9IjEwNTIuMTU2IiBncmFkaWVudFRyYW5zZm9ybT0ibWF0cml4KDk5MiAwIDAgLTk5MiA0NDI5OTMgMTA0NDU2NSkiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj48c3RvcCBvZmZzZXQ9IjAiIHN0eWxlPSJzdG9wLWNvbG9yOiM3MmI0ZjUiLz48c3RvcCBvZmZzZXQ9IjEiIHN0eWxlPSJzdG9wLWNvbG9yOiMzNTZlYmYiLz48L2xpbmVhckdyYWRpZW50PjxjaXJjbGUgY3g9IjUxMiIgY3k9IjUxMiIgcj0iNDk2IiBzdHlsZT0iZmlsbC1ydWxlOmV2ZW5vZGQ7Y2xpcC1ydWxlOmV2ZW5vZGQ7ZmlsbDp1cmwoI2EpO3N0cm9rZTojZGFlZmZmO3N0cm9rZS13aWR0aDozMiIvPjxwYXRoIGQ9Ik03MTIuOSAzMzIuNGM0NC40IDAgNzguOSAxNS4yIDEwMy40IDQ1LjcgMjQuNyAzMC4yIDM3IDczLjEgMzcgMTI4LjcgMCA1NS41LTEyLjQgOTguOC0zNy4zIDEyOS42LTI0LjcgMzAuNy01OSA0Ni0xMDMuMSA0Ni0yMiAwLTQyLjItNC02MC41LTEyLTE4LjEtOC4yLTMzLjMtMjAuOC00NS43LTM3LjZINjAzbC0xMC44IDQzLjVoLTM2LjdWMTk2aDUxLjJ2MTE2LjZjMCAyNi4xLS44IDQ5LjYtMi41IDcwLjRoMi41YzIzLjktMzMuNyA1OS4zLTUwLjYgMTA2LjItNTAuNm0tNy40IDQyLjljLTM1IDAtNjAuMiAxMC4xLTc1LjYgMzAuMi0xNS40IDIwLTIzLjEgNTMuNy0yMy4xIDEwMS4yczcuOSA4MS42IDIzLjggMTAyLjFjMTUuOCAyMC40IDQxLjIgMzAuNSA3Ni4yIDMwLjUgMzEuNSAwIDU0LjktMTEuNCA3MC40LTM0LjMgMTUuNC0yMyAyMy4xLTU2LjEgMjMuMS05OS4xcTAtNjYtMjMuMS05OC40Yy0xNS41LTIxLjQtMzkuNC0zMi4yLTcxLjctMzIuMiIgc3R5bGU9ImZpbGwtcnVsZTpldmVub2RkO2NsaXAtcnVsZTpldmVub2RkO2ZpbGw6I2ZmZiIvPjxwYXRoIGQ9Ik0zMTcuMyA2MzkuNWMzNC4yIDAgNTktOS4yIDc0LjctMjcuNSAxNS42LTE4LjMgMjQtNDkuMiAyNS05Mi42VjUwOGMwLTQ3LjMtOC04MS40LTI0LjEtMTAyLjEtMTYtMjAuOC00MS41LTMxLjItNzYuMi0zMS4yLTMwIDAtNTMuMSAxMS43LTY5LjEgMzUuMi0xNS44IDIzLjItMjMuOCA1Ni4yLTIzLjggOTguOHM3LjggNzUuMSAyMy41IDk3LjVjMTUuOCAyMi4xIDM5LjEgMzMuMiA3MCAzMy4zbS03LjcgNDIuOGMtNDMuNiAwLTc3LjctMTUuMy0xMDIuMS00Ni0yNC41LTMwLjctMzYuNy03My40LTM2LjctMTI4LjQgMC01NS4zIDEyLjMtOTguNSAzNy0xMjkuNnM1OS00Ni42IDEwMy4xLTQ2LjZxNjkuNDUgMCAxMDYuOCA1Mi41aDIuOGw3LjQtNDYuM2g0MC40djQ5MGgtNTEuMlY2ODMuM2MwLTIwLjYgMS4xLTM4LjEgMy40LTUyLjVoLTRjLTIzLjggMzQuNC01OS40IDUxLjUtMTA2LjkgNTEuNSIgc3R5bGU9ImZpbGwtcnVsZTpldmVub2RkO2NsaXAtcnVsZTpldmVub2RkO2ZpbGw6I2M4ZThmZiIvPjwvc3ZnPg==",
+        "jellyfin": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbDpzcGFjZT0icHJlc2VydmUiIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48bGluZWFyR3JhZGllbnQgaWQ9ImEiIHgxPSI5Ny41MDgiIHgyPSI1MjIuMDY5IiB5MT0iMzA4LjEzNSIgeTI9IjYzLjAxOSIgZ3JhZGllbnRUcmFuc2Zvcm09Im1hdHJpeCgxIDAgMCAtMSAwIDUxNCkiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj48c3RvcCBvZmZzZXQ9IjAiIHN0eWxlPSJzdG9wLWNvbG9yOiNhYTVjYzMiLz48c3RvcCBvZmZzZXQ9IjEiIHN0eWxlPSJzdG9wLWNvbG9yOiMwMGE0ZGMiLz48L2xpbmVhckdyYWRpZW50PjxwYXRoIGQ9Ik0yNTYgMTk2LjJjLTIyLjQgMC05NC44IDEzMS4zLTgzLjggMTUzLjRzMTU2LjggMjEuOSAxNjcuNyAwLTYxLjMtMTUzLjQtODMuOS0xNTMuNCIgc3R5bGU9ImZpbGw6dXJsKCNhKSIvPjxsaW5lYXJHcmFkaWVudCBpZD0iYiIgeDE9Ijk0LjE5MyIgeDI9IjUxOC43NTQiIHkxPSIzMDIuMzk0IiB5Mj0iNTcuMjc4IiBncmFkaWVudFRyYW5zZm9ybT0ibWF0cml4KDEgMCAwIC0xIDAgNTE0KSIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiPjxzdG9wIG9mZnNldD0iMCIgc3R5bGU9InN0b3AtY29sb3I6I2FhNWNjMyIvPjxzdG9wIG9mZnNldD0iMSIgc3R5bGU9InN0b3AtY29sb3I6IzAwYTRkYyIvPjwvbGluZWFyR3JhZGllbnQ+PHBhdGggZD0iTTI1NiAwQzE4OC4zIDAtMjkuOCAzOTUuNCAzLjQgNDYyLjJzNDcyLjMgNjYgNTA1LjIgMFMzMjMuOCAwIDI1NiAwbTE2NS42IDQwNC4zYy0yMS42IDQzLjItMzA5LjMgNDMuOC0zMzEuMSAwUzIxMS43IDEwMS40IDI1NiAxMDEuNCA0NDMuMiAzNjEgNDIxLjYgNDA0LjMiIHN0eWxlPSJmaWxsOnVybCgjYikiLz48L3N2Zz4=",
+        "seerr": "data:image/svg+xml;base64,PHN2ZyBpZD0iRWJlbmVfMSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB2ZXJzaW9uPSIxLjEiIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB2aWV3Qm94PSIwIDAgOTYgOTYiPjxkZWZzPjxzdHlsZT4KICAgICAgLnN0MCwgLnN0MSB7CiAgICAgICAgZmlsbDogIzEzMTkyODsKICAgICAgfQoKICAgICAgLnN0MiB7CiAgICAgICAgZmlsbDogdXJsKCNVbmJlbmFubnRlcl9WZXJsYXVmKTsKICAgICAgfQoKICAgICAgLnN0MiwgLnN0MywgLnN0MSB7CiAgICAgICAgZmlsbC1ydWxlOiBldmVub2RkOwogICAgICB9CgogICAgICAuc3QzIHsKICAgICAgICBmaWxsOiB1cmwoI1VuYmVuYW5udGVyX1ZlcmxhdWZfMik7CiAgICAgIH0KCiAgICAgIC5zdDEgewogICAgICAgIGlzb2xhdGlvbjogaXNvbGF0ZTsKICAgICAgICBvcGFjaXR5OiAuMjsKICAgICAgfQogICAgPC9zdHlsZT48bGluZWFyR3JhZGllbnQgaWQ9IlVuYmVuYW5udGVyX1ZlcmxhdWYiIGRhdGEtbmFtZT0iVW5iZW5hbm50ZXIgVmVybGF1ZiIgeDE9IjI0IiB5MT0iMTQ4IiB4Mj0iOTMuNSIgeTI9Ijc4LjUiIGdyYWRpZW50VHJhbnNmb3JtPSJ0cmFuc2xhdGUoMCAxNzIpIHNjYWxlKDEgLTEpIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjYzM5NWZjIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjNGY2NWY1Ii8+PC9saW5lYXJHcmFkaWVudD48bGluZWFyR3JhZGllbnQgaWQ9IlVuYmVuYW5udGVyX1ZlcmxhdWZfMiIgZGF0YS1uYW1lPSJVbmJlbmFubnRlciBWZXJsYXVmIDIiIHgxPSIyOCIgeTE9IjE2NCIgeDI9IjI4IiB5Mj0iMTI0IiBncmFkaWVudFRyYW5zZm9ybT0idHJhbnNsYXRlKDAgMTcyKSBzY2FsZSgxIC0xKSIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiPjxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI2ZmZiIgc3RvcC1vcGFjaXR5PSIuNCIvPjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI2ZmZiIgc3RvcC1vcGFjaXR5PSIwIi8+PC9saW5lYXJHcmFkaWVudD48L2RlZnM+PGNpcmNsZSBjbGFzcz0ic3QwIiBjeD0iNTIiIGN5PSI1MiIgcj0iMjgiLz48cGF0aCBjbGFzcz0ic3QyIiBkPSJNNDgsOTZjMjYuNTEsMCw0OC0yMS40OSw0OC00OFM3NC41MSwwLDQ4LDAsMCwyMS40OSwwLDQ4czIxLjQ5LDQ4LDQ4LDQ4Wk04MCw1MmMwLDE1LjQ2LTEyLjU0LDI4LTI4LDI4cy0yOC0xMi41NC0yOC0yOGMwLTIuODcuNDMtNS42NCwxLjIzLTguMjUsMi4xOSw0Ljg2LDcuMDksOC4yNSwxMi43Nyw4LjI1LDcuNzMsMCwxNC02LjI3LDE0LTE0LDAtNS42OC0zLjM4LTEwLjU3LTguMjUtMTIuNzcsMi42MS0uOCw1LjM4LTEuMjMsOC4yNS0xLjIzLDE1LjQ2LDAsMjgsMTIuNTQsMjgsMjhaIi8+PHBhdGggY2xhc3M9InN0MSIgZD0iTTgwLDUyYzAsMTUuNDYtMTIuNTQsMjgtMjgsMjhzLTI3LjQ3LTEyLjAxLTI3Ljk4LTI3LjAyYy0uMDEuMzQtLjAyLjY4LS4wMiwxLjAyLDAsMTYuNTcsMTMuNDMsMzAsMzAsMzBzMzAtMTMuNDMsMzAtMzAtMTMuNDMtMzAtMzAtMzBjLS4zNCwwLS42OCwwLTEuMDIuMDIsMTUuMDEuNTIsMjcuMDIsMTIuODUsMjcuMDIsMjcuOThaIi8+PHBhdGggY2xhc3M9InN0MyIgZD0iTTQ4LDEyYy0xOS44OCwwLTM2LDE2LjEyLTM2LDM2LDAsMi4yMS0xLjc5LDQtNCw0cy00LTEuNzktNC00QzQsMjMuNywyMy43LDQsNDgsNGMyLjIxLDAsNCwxLjc5LDQsNHMtMS43OSw0LTQsNFoiLz48L3N2Zz4=",
+        "bot": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbDpzcGFjZT0icHJlc2VydmUiIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48bGluZWFyR3JhZGllbnQgaWQ9ImEiIHgxPSIyNTYiIHgyPSIyNTYiIHkxPSIyIiB5Mj0iNTE0IiBncmFkaWVudFRyYW5zZm9ybT0ibWF0cml4KDEgMCAwIC0xIDAgNTE0KSIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiPjxzdG9wIG9mZnNldD0iMCIgc3R5bGU9InN0b3AtY29sb3I6IzFkOTNkMiIvPjxzdG9wIG9mZnNldD0iMSIgc3R5bGU9InN0b3AtY29sb3I6IzM4YjBlMyIvPjwvbGluZWFyR3JhZGllbnQ+PGNpcmNsZSBjeD0iMjU2IiBjeT0iMjU2IiByPSIyNTYiIHN0eWxlPSJmaWxsOnVybCgjYSkiLz48cGF0aCBkPSJtMTczLjMgMjc0LjcgMzAuNCA4NC4xczMuOCA3LjkgNy45IDcuOSA2NC41LTYyLjkgNjQuNS02Mi45bDY3LjMtMTI5LjktMTY5IDc5LjF6IiBzdHlsZT0iZmlsbDojYzhkYWVhIi8+PHBhdGggZD0ibTIxMy42IDI5Ni4zLTUuOCA2MnMtMi40IDE5IDE2LjUgMGMxOS0xOSAzNy4yLTMzLjYgMzcuMi0zMy42IiBzdHlsZT0iZmlsbDojYTljNmQ4Ii8+PHBhdGggZD0ibTE3My44IDI3Ny43LTYyLjUtMjAuNHMtNy41LTMtNS4xLTkuOWMuNS0xLjQgMS41LTIuNiA0LjUtNC43QzEyNC42IDIzMy4xIDM2NyAxNDYgMzY3IDE0NnM2LjgtMi4zIDEwLjktLjhjMiAuNiAzLjYgMi4zIDQgNC40LjQgMS44LjYgMy43LjUgNS41IDAgMS42LS4yIDMuMS0uNCA1LjQtMS41IDIzLjgtNDUuNyAyMDEuNi00NS43IDIwMS42cy0yLjYgMTAuNC0xMi4xIDEwLjhjLTQuNy4yLTkuMy0xLjYtMTIuNi00LjktMTguNi0xNi04Mi44LTU5LjItOTctNjguNi0uNi0uNC0xLjEtMS4xLTEuMi0xLjktLjItMSAuOS0yLjIuOS0yLjJzMTExLjgtOTkuNCAxMTQuOC0xMDkuOGMuMi0uOC0uNi0xLjItMS44LS45LTcuNCAyLjctMTM2LjIgODQuMS0xNTAuNCA5My0uOS4yLTIgLjMtMy4xLjEiIHN0eWxlPSJmaWxsOiNmZmYiLz48L3N2Zz4=",
+        "tailscale": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbDpzcGFjZT0icHJlc2VydmUiIGlkPSJMYXllcl8xIiB4PSIwIiB5PSIwIiB2ZXJzaW9uPSIxLjEiIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48c3R5bGU+LnN0MHtvcGFjaXR5Oi4yO2VuYWJsZS1iYWNrZ3JvdW5kOm5ld308L3N0eWxlPjxwYXRoIGZpbGw9IiNmMGYwZjAiIGQ9Ik02NS42IDEyNy43YzM1LjMgMCA2My45LTI4LjYgNjMuOS02My45UzEwMC45IDAgNjUuNiAwIDEuOCAyOC42IDEuOCA2My45czI4LjYgNjMuOCA2My44IDYzLjgiIGNsYXNzPSJzdDAiLz48cGF0aCBmaWxsPSIjZjBmMGYwIiBkPSJNNjUuNiAzMTguMWMzNS4zIDAgNjMuOS0yOC42IDYzLjktNjMuOXMtMjguNi02My45LTYzLjktNjMuOVMxLjggMjE5IDEuOCAyNTQuMnMyOC42IDYzLjkgNjMuOCA2My45Ii8+PHBhdGggZmlsbD0iI2YwZjBmMCIgZD0iTTY1LjYgNTEyYzM1LjMgMCA2My45LTI4LjYgNjMuOS02My45cy0yOC42LTYzLjktNjMuOS02My45LTYzLjggMjguNy02My44IDYzLjlTMzAuNCA1MTIgNjUuNiA1MTIiIGNsYXNzPSJzdDAiLz48cGF0aCBmaWxsPSIjZjBmMGYwIiBkPSJNMjU3LjIgMzE4LjFjMzUuMyAwIDYzLjktMjguNiA2My45LTYzLjlzLTI4LjYtNjMuOS02My45LTYzLjktNjMuOSAyOC42LTYzLjkgNjMuOSAyOC42IDYzLjkgNjMuOSA2My45bTAgMTkzLjljMzUuMyAwIDYzLjktMjguNiA2My45LTYzLjlzLTI4LjYtNjMuOS02My45LTYzLjktNjMuOSAyOC42LTYzLjkgNjMuOSAyOC42IDYzLjkgNjMuOSA2My45Ii8+PHBhdGggZmlsbD0iI2YwZjBmMCIgZD0iTTI1Ny4yIDEyNy43YzM1LjMgMCA2My45LTI4LjYgNjMuOS02My45UzI5Mi41IDAgMjU3LjIgMHMtNjMuOSAyOC42LTYzLjkgNjMuOSAyOC42IDYzLjggNjMuOSA2My44bTE4OS4yIDBjMzUuMyAwIDYzLjktMjguNiA2My45LTYzLjlTNDgxLjYgMCA0NDYuNCAwYy0zNS4zIDAtNjMuOSAyOC42LTYzLjkgNjMuOXMyOC42IDYzLjggNjMuOSA2My44IiBjbGFzcz0ic3QwIi8+PHBhdGggZmlsbD0iI2YwZjBmMCIgZD0iTTQ0Ni40IDMxOC4xYzM1LjMgMCA2My45LTI4LjYgNjMuOS02My45cy0yOC42LTYzLjktNjMuOS02My45LTYzLjkgMjguNi02My45IDYzLjkgMjguNiA2My45IDYzLjkgNjMuOSIvPjxwYXRoIGZpbGw9IiNmMGYwZjAiIGQ9Ik00NDYuNCA1MTJjMzUuMyAwIDYzLjktMjguNiA2My45LTYzLjlzLTI4LjYtNjMuOS02My45LTYzLjktNjMuOSAyOC42LTYzLjkgNjMuOSAyOC42IDYzLjkgNjMuOSA2My45IiBjbGFzcz0ic3QwIi8+PC9zdmc+",
+      };
+
+      /** Color de cada programa, dentro de la paleta. El estado manda si no está bien. */
+      const PART_COLORS = {
+        radarr: 'gold',
+        sonarr: 'blue',
+        prowlarr: 'gold',
+        bazarr: 'purple',
+        qbittorrent: 'blue',
+        jellyfin: 'purple',
+        seerr: 'purple',
+        bot: 'blue',
+        tailscale: 'green',
+      };
+
+      const DISK_COLORS = ['purple', 'blue', 'gold', 'green'];
+
+      const SVG_NS = 'http://www.w3.org/2000/svg';
+
+      function el(tag, className, ...children) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        node.append(...children.filter((child) => child !== null && child !== undefined));
+        return node;
+      }
+
+      function svgNode(tag, attributes = {}) {
+        const node = document.createElementNS(SVG_NS, tag);
+        for (const [name, value] of Object.entries(attributes)) node.setAttribute(name, value);
+        return node;
+      }
+
+      /** Único camino para dibujar un icono. Los trazos son constantes de este archivo, nunca datos. */
+      function icon(name, size = 18) {
+        const node = svgNode('svg', { class: 'lucide', width: size, height: size, viewBox: '0 0 24 24', 'aria-hidden': 'true' });
+        node.innerHTML = ICONS[name];
+        return node;
+      }
+
+      /** Con color de la paleta: lo usan las tarjetas, las gráficas y los discos. */
+      function tinted(node, color) {
+        node.style.setProperty('--c', `var(--${color})`);
+        return node;
+      }
+
+      function brand(kind) {
+        const reel = svgNode('svg', { class: 'brand-reel', viewBox: '0 0 64 64', 'aria-hidden': 'true' });
+        reel.append(svgNode('use', { href: '#art-reel' }));
+        const [first, second] = brandParts(PRODUCT_NAME);
+        const words = el('div', null, el('div', 'brand-name', first, el('span', null, second)), el('div', 'brand-sub', 'MEDIA CENTER'));
+        return [reel, words];
+      }
+
+      function art(symbol, viewBox, className) {
+        const node = svgNode('svg', { class: className, viewBox, 'aria-hidden': 'true' });
+        node.append(svgNode('use', { href: symbol }));
+        return node;
+      }
+
+      /** El logo del programa. Sin logo, nada: el nombre ya está al lado. */
+      function partLogo(part) {
+        const box = el('span', part.id === 'tailscale' ? 'logo light-mark' : 'logo');
+        if (LOGOS[part.id]) {
+          const image = el('img');
+          image.alt = '';
+          image.src = LOGOS[part.id];
+          box.append(image);
+        }
+        return box;
+      }
+
+      /**
+       * Gráfica de línea con muestras reales. Siempre lleva su línea base; sin muestras, solo eso.
+       * scale: min, max y minSpan de sparkPoints.
+       */
+      function sparkline(values, color, scale = {}) {
+        const width = 100;
+        const height = 30;
+        const node = svgNode('svg', { class: 'spark', viewBox: `0 0 ${width} ${height}`, preserveAspectRatio: 'none', 'aria-hidden': 'true' });
+        tinted(node, color);
+        node.append(svgNode('line', { class: 'spark-base', x1: 0, x2: width, y1: height - 0.5, y2: height - 0.5 }));
+        const points = sparkPoints(values, { width, height, ...scale });
+        const line = sparkPath(points);
+        if (line) {
+          node.append(
+            svgNode('path', { d: `${line}L${width} ${height}L${points[0].x.toFixed(2)} ${height}Z`, fill: `url(#spark-${color})` }),
+            svgNode('path', { class: 'spark-line', d: line }),
+          );
+        }
+        return node;
+      }
+
+      /** Barras de la velocidad: una por muestra, alineadas a la derecha, y lo que falta queda como línea base. */
+      function activityBars(values, slots = 40) {
+        const recent = values.slice(-slots);
+        const top = Math.max(...recent, 1);
+        const missing = Array.from({ length: slots - recent.length }, () => el('i', 'off'));
+        const bars = recent.map((value) => {
+          const bar = el('i', value > 0 ? null : 'off');
+          if (value > 0) bar.style.height = `${Math.max(4, Math.round((value / top) * 100))}%`;
+          return bar;
+        });
+        const node = el('div', 'bars', ...missing, ...bars);
+        node.setAttribute('aria-hidden', 'true');
+        return node;
+      }
+
+      function stateBadge(part) {
+        return el('span', `state state-${part.state}`, statusWord(part.state));
+      }
+
+      function liveBadge(on) {
+        return el('span', `state live panel-meta${on ? '' : ' off'}`, on ? 'Live' : NO_DATA);
+      }
+
+      function issueList(messages, danger = false) {
+        if (!messages.length) return null;
+        const list = el('ul', danger ? 'issues danger' : 'issues');
+        list.append(...messages.map((message) => el('li', null, message)));
+        return list;
+      }
+
+      function panel(iconName, title, meta, ...body) {
+        return el('article', 'panel', el('div', 'panel-head', icon(iconName, 17), el('h3', null, title), meta), ...body);
+      }
+
+      function statBox(value, label) {
+        return el('div', 'stat', el('strong', null, value), el('span', null, label));
+      }
+
+      /** Color del programa según su estado: rojo si está caído, amarillo si tiene avisos. */
+      function partColor(part) {
+        if (part.state === 'down') return 'red';
+        if (part.state !== 'ok') return 'yellow';
+        return PART_COLORS[part.id] ?? 'purple';
+      }
+
+      function partSpark(part) {
+        return sparkline(samples(`part:${part.id}`), partColor(part), { min: 0, max: 1.25 });
+      }
+
+      // --- Overview ---
+      const shownMetrics = new Map();
+
+      function metricCard({ key, iconName, color, value, unit, label, note, view, spark }) {
+        const number = el('span', 'metric-value', value, unit ? el('small', null, unit) : null);
+        const shown = value + (unit ?? '');
+        if (shownMetrics.has(key) && shownMetrics.get(key) !== shown) number.classList.add('bump');
+        shownMetrics.set(key, shown);
+        const card = el(
+          'button',
+          'metric',
+          el('span', 'metric-icon', icon(iconName, 30)),
+          el('span', 'metric-text', number, el('span', 'metric-label', label), note ? el('span', 'metric-note', note) : null),
+          spark,
+        );
+        card.type = 'button';
+        tinted(card, color);
+        card.addEventListener('click', () => showView(view));
+        return card;
+      }
+
+      function renderMetrics(status) {
+        const parts = status?.parts ?? [];
+        const usage = status ? storageUsage(status.disks.items) : null;
+        const today = status ? downloadsToday(status.downloads) : { value: NO_DATA, note: null };
+        const pending = status && !status.requests.error ? String(status.requests.total) : NO_DATA;
+        $('metrics').replaceChildren(
+          metricCard({
+            key: 'services',
+            iconName: 'circle-check',
+            color: 'green',
+            value: status ? String(servicesOnline(parts)) : NO_DATA,
+            unit: status ? ` / ${parts.length}` : null,
+            label: 'Services Online',
+            view: 'services',
+            spark: sparkline(samples('services'), 'green', { min: 0, max: Math.max(parts.length, 1) * 1.25 }),
+          }),
+          metricCard({
+            key: 'requests',
+            iconName: 'clapperboard',
+            color: 'purple',
+            value: pending,
+            label: 'Requests Pending',
+            note: status?.requests.error ? 'Seerr no respondió' : null,
+            view: 'requests',
+            spark: sparkline(samples('requests'), 'purple', { minSpan: 2 }),
+          }),
+          metricCard({
+            key: 'today',
+            iconName: 'download',
+            color: 'blue',
+            value: today.value,
+            label: 'Downloads Today',
+            note: today.note,
+            view: 'downloads',
+            spark: sparkline(samples('today'), 'blue', { minSpan: 2 }),
+          }),
+          metricCard({
+            key: 'storage',
+            iconName: 'database',
+            color: 'gold',
+            value: usage ? String(usage.percent) : NO_DATA,
+            unit: usage ? '%' : null,
+            label: 'Storage Used',
+            note: status && !usage ? 'Sin datos de los discos' : null,
+            view: 'storage',
+            spark: sparkline(samples('storage'), 'gold', { minSpan: 2 }),
+          }),
+        );
+      }
+
+      function serviceTile(part) {
+        const uptime = partUptime(part);
+        const tile = el(
+          'button',
+          'tile',
+          partLogo(part),
+          el(
+            'span',
+            'tile-text',
+            el('span', 'tile-name', part.name),
+            stateBadge(part),
+            el('span', 'tile-uptime', uptime === NO_DATA ? NO_DATA : `${uptime} uptime`),
+          ),
+          partSpark(part),
+        );
+        tile.type = 'button';
+        tile.title = `Ver ${part.name} en Services`;
+        tinted(tile, partColor(part));
+        tile.addEventListener('click', () => showPart(part.id));
+        return tile;
+      }
+
+      function diskRow(disk, index) {
+        const percent = diskPercent(disk);
+        return tinted(
+          el(
+            'div',
+            'disk',
+            el(
+              'div',
+              'disk-line',
+              el('span', 'disk-name', diskName(disk)),
+              el('span', `disk-percent${disk.low ? ' low' : ''}`, `${percent}%`),
+            ),
+            progressBar(percent / 100),
+            el('div', 'disk-facts', `${formatBytes(disk.totalBytes)} · ${formatBytes(disk.totalBytes - disk.freeBytes)} used · ${formatBytes(disk.freeBytes)} free`),
+          ),
+          DISK_COLORS[index % DISK_COLORS.length],
+        );
+      }
+
+      function storagePanel(disks) {
+        const usage = storageUsage(disks.items);
+        return panel(
+          'database',
+          'STORAGE VAULT',
+          usage ? el('span', 'panel-meta gold', `${usage.percent}% Used`) : null,
+          ...disks.items.map(diskRow),
+          usage
+            ? el('div', 'panel-foot', icon('hard-drive', 14), `${formatBytes(usage.freeBytes)} Free of ${formatBytes(usage.totalBytes)}`)
+            : issueList([disks.detail ?? 'Sin datos de los discos'], true),
+        );
+      }
+
+      /** Barras y datos de la actividad: los usa el panel de Overview y la vista Downloads. */
+      function activityBody(status) {
+        const note = transferNote(status);
+        return [
+          activityBars(samples('down')),
+          note ? el('p', `note${status.transferBlocked ? ' warn' : ''}`, note) : null,
+          el(
+            'div',
+            'stat-row',
+            note ? null : statBox(formatSpeed(status.transfer.downloadBps), 'Current Speed'),
+            statBox(downloadsToday(status.downloads).value, 'Today'),
+            statBox(String(status.downloads.items.length), 'In queue'),
+          ),
+        ];
+      }
+
+      function downloadPanel(status) {
+        return panel('download', 'DOWNLOAD ACTIVITY', liveBadge(Boolean(status.transfer)), ...activityBody(status));
+      }
+
+      /** Miniatura del pedido. Si no hay o no carga, queda el marcador que tiene detrás. */
+      function requestPoster(request, size) {
+        const box = el('span', 'poster', icon('clapperboard', size));
+        const url = posterUrl(request.posterPath);
+        if (url) {
+          const image = el('img');
+          image.alt = '';
+          image.referrerPolicy = 'no-referrer';
+          image.addEventListener('error', () => image.remove());
+          image.src = url;
+          box.append(image);
+        }
+        return box;
+      }
+
+      function requestTitle(request) {
+        return request.year ? `${request.title} (${request.year})` : request.title;
+      }
+
+      function queuePanel(requests, seerrUsable) {
+        const body = requests.error
+          ? [issueList([`No se pudieron leer los pedidos: ${requests.error}`], true)]
+          : requests.items.length
+            ? requests.items.slice(0, 3).map((request) =>
+                el(
+                  'div',
+                  'request',
+                  requestPoster(request, 14),
+                  el('div', 'request-text', el('span', 'request-title', requestTitle(request))),
+                  el('span', 'request-age', timeAgo(request.createdAt)),
+                ),
+              )
+            : [el('p', 'note', 'No hay pedidos sin completar.')];
+        const all = el('button', 'link-button', 'View all requests', icon('arrow-right', 14));
+        all.type = 'button';
+        all.addEventListener('click', () => showView('requests'));
+        const seerr = el('button', 'link-button needs-pc', 'Abrir Seerr', icon('arrow-up-right', 14));
+        seerr.type = 'button';
+        seerr.disabled = !seerrUsable;
+        seerr.addEventListener('click', openSeerr);
+        return panel(
+          'list',
+          'REQUEST QUEUE',
+          requests.error ? null : el('span', 'panel-meta pill', String(requests.total)),
+          ...body,
+          el('div', 'queue-foot', all, seerr),
+        );
+      }
+
+      /** Una IP con su botón de copiar. */
+      function ipRow(label, value) {
+        const copy = el('button', 'icon-button', icon('copy', 14));
+        copy.type = 'button';
+        copy.title = `Copiar ${label}`;
+        copy.setAttribute('aria-label', copy.title);
+        copy.hidden = !value;
+        copy.addEventListener('click', () => copyIp(copy, value));
+        return el('div', 'ip-row', el('div', null, el('span', 'ip-label', label), el('span', 'ip-value', value ?? 'No detectada')), copy);
+      }
+
+      function transferLine(iconName, label, value) {
+        return el('div', 'transfer-line', icon(iconName, 15), el('div', null, el('span', null, label), el('strong', null, value)));
+      }
+
+      function transferBlock(status) {
+        const note = transferNote(status);
+        return el(
+          'div',
+          'transfer',
+          // Si qBittorrent pide contraseña, la nota va en lugar de la velocidad.
+          status.transferBlocked ? null : transferLine('arrow-up', 'Upload', formatSpeed(status.transfer?.uploadBps)),
+          status.transferBlocked ? null : transferLine('arrow-down', 'Download', formatSpeed(status.transfer?.downloadBps)),
+          note ? el('p', `note${status.transferBlocked ? ' warn' : ''}`, note) : null,
+        );
+      }
+
+      function networkPanel(status) {
+        return panel(
+          'wifi',
+          'NETWORK STATUS',
+          null,
+          art('#art-globe', '0 0 200 200', 'panel-art'),
+          ipRow('Local IP', status.network.lanIp),
+          ipRow('Tailscale IP', status.network.tailscaleIp),
+          transferBlock(status),
+        );
+      }
+
+      function renderOverview(status) {
+        renderMetrics(status);
+        $('monitored').textContent = servicesMonitored(status.parts);
+        $('room').replaceChildren(...status.parts.map(serviceTile));
+        $('panels').replaceChildren(
+          storagePanel(status.disks),
+          downloadPanel(status),
+          queuePanel(status.requests, seerrPart()?.state !== 'down'),
+          networkPanel(status),
+        );
+      }
+
+      // --- Services ---
+      function partCard(part) {
+        const uptime = partUptime(part);
+        const stateNote = part.stateText ?? (part.state === 'error' ? stateLabel(part.state) : null);
+        const card = el(
+          'article',
+          'card',
+          el(
+            'div',
+            'card-head',
+            el('div', 'part-title', partLogo(part), el('div', null, el('h3', null, part.name), stateBadge(part))),
+            openServiceButton(part),
+          ),
+          PART_PURPOSE[part.id] ? el('p', 'muted small', PART_PURPOSE[part.id]) : null,
+          el('p', 'muted small', uptime === NO_DATA ? `Uptime: ${NO_DATA} (${part.state === 'down' ? 'no está corriendo' : 'sin dato de inicio'})` : `Uptime: ${uptime}`),
+          part.version ? el('p', 'muted small', `Versión ${part.version}`) : null,
+          stateNote ? el('p', 'muted small', stateNote) : null,
+          part.detail ? el('p', 'muted small', part.detail) : null,
+          issueList(part.issues.map((issue) => issue.message)),
+          el('div', 'part-spark', el('p', 'note', 'Disponibilidad'), tinted(partSpark(part), partColor(part))),
+          partFooter(part),
+        );
+        card.dataset.part = part.id;
+        return card;
+      }
+
+      /** Flecha para abrir la web del programa en el navegador. El bot y Tailscale no tienen web. */
+      function openServiceButton(part) {
+        if (!part.port) return null;
+        const button = el('button', 'open-service', icon('arrow-up-right', 16));
+        button.type = 'button';
+        button.title = `Abrir ${part.name} en el navegador`;
+        button.setAttribute('aria-label', button.title);
+        button.disabled = part.state === 'down';
+        button.addEventListener('click', () => openInBrowser(serviceUrl(part.port)));
+        return button;
+      }
+
+      function partFooter(part) {
+        if (!part.control) return null;
+        const running = busyParts.get(part.id);
+        const action = running ?? availableAction(part);
+        const button = el('button', 'button part-action', actionLabel(action, Boolean(running), part.control.kind));
+        button.type = 'button';
+        button.disabled = Boolean(running);
+        button.addEventListener('click', () => runPartAction(part, action));
+        const result = actionResults.get(part.id);
+        const showResult = result && Date.now() < result.until;
+        return el(
+          'div',
+          'part-end',
+          showResult ? el('p', `action-result ${result.ok ? 'ok' : 'failed'}`, result.message) : null,
+          el('div', 'part-footer', button),
+        );
+      }
+
+      function renderParts(container, parts) {
+        container.replaceChildren(...parts.map(partCard));
+      }
+
+      // --- Downloads ---
+      function progressBar(ratio) {
+        const fill = el('div');
+        fill.style.width = `${Math.round(ratio * 100)}%`;
+        return el('div', 'bar', fill);
+      }
+
+      function downloadCard(item) {
+        const facts = [downloadLabel(item)];
+        if (item.progress !== null) facts.push(`${Math.round(item.progress * 100)}%`);
+        if (item.sizeBytes !== null) facts.push(formatBytes(item.sizeBytes));
+        const timeLeft = formatTimeLeft(item.timeLeft);
+        if (timeLeft) facts.push(`faltan ${timeLeft}`);
+        if (item.quality) facts.push(item.quality);
+
+        return el(
+          'article',
+          'card',
+          el('h3', null, item.subtitle ? `${item.title} (${item.subtitle})` : item.title),
+          el('p', 'muted small', facts.join(' · ')),
+          item.progress !== null ? progressBar(item.progress) : null,
+          issueList(item.problems, item.trackedStatus === 'error'),
+        );
+      }
+
+      function pauseCard(paused) {
+        const button = el('button', 'button', downloadsBusy ? 'Un momento…' : paused ? 'Reanudar descargas' : 'Pausar descargas');
+        button.type = 'button';
+        button.disabled = downloadsBusy;
+        button.addEventListener('click', () => toggleDownloads(paused));
+        const showResult = downloadsResult && Date.now() < downloadsResult.until;
+        return el(
+          'div',
+          'pause-row',
+          el('p', 'small', paused ? 'Las descargas están en pausa.' : 'Pausalas si necesitás el ancho de banda.'),
+          button,
+          showResult ? el('p', `action-result ${downloadsResult.ok ? 'ok' : 'failed'}`, downloadsResult.message) : null,
+        );
+      }
+
+      function renderDownloads(container, downloads, paused = false) {
+        const nodes = [pauseCard(paused)];
+        if (downloads.errors.length) {
+          nodes.push(issueList(downloads.errors.map((error) => `No se pudo leer la cola de ${error.name}: ${error.message}`), true));
+        }
+        if (downloads.items.length) {
+          nodes.push(...downloads.items.map(downloadCard));
+        } else if (!downloads.errors.length) {
+          nodes.push(
+            el(
+              'div',
+              'empty',
+              el('p', null, 'No se está bajando nada.'),
+              el('p', 'muted small', 'Solo se ven las colas de Radarr y Sonarr: lo agregado a mano en qBittorrent no aparece.'),
+            ),
+          );
+        }
+        if (downloads.truncated) nodes.push(el('p', 'muted small', 'Hay más descargas de las que entran en esta lista.'));
+        container.replaceChildren(el('div', 'stack', ...nodes));
+      }
+
+      function renderDownloadsActivity(status) {
+        const [bars, note, stats] = activityBody(status);
+        $('downloads-activity').replaceChildren(
+          el('article', 'card activity-card', el('div', null, bars, note), stats),
+        );
+      }
+
+      // --- Requests ---
+      function renderRequests(container, requests) {
+        if (requests.error) {
+          container.replaceChildren(issueList([`No se pudieron leer los pedidos: ${requests.error}`], true));
+          return;
+        }
+        if (!requests.items.length) {
+          container.replaceChildren(el('div', 'empty', el('p', null, 'No hay pedidos sin completar.')));
+          return;
+        }
+        const cards = requests.items.map((request) =>
+          el(
+            'article',
+            'card',
+            el(
+              'div',
+              'request big',
+              requestPoster(request, 20),
+              el(
+                'div',
+                'request-text',
+                el('span', 'request-title', requestTitle(request)),
+                el('p', 'muted small', requestFacts(request)),
+              ),
+              el('span', 'request-age', timeAgo(request.createdAt)),
+            ),
+          ),
+        );
+        const hidden = requests.total - requests.items.length;
+        container.replaceChildren(
+          el(
+            'div',
+            'stack',
+            ...cards,
+            hidden > 0 ? el('p', 'muted small', `Y ${hidden} más: se ven todos en Seerr.`) : null,
+          ),
+        );
+      }
+
+      // --- Storage ---
+      function renderStorageSummary(disks) {
+        const usage = storageUsage(disks.items);
+        $('storage-summary').replaceChildren(
+          usage
+            ? el(
+                'article',
+                'card storage-head',
+                el(
+                  'div',
+                  'stat-row',
+                  statBox(`${usage.percent}%`, 'Used'),
+                  statBox(formatBytes(usage.usedBytes), 'Used space'),
+                  statBox(formatBytes(usage.freeBytes), 'Free'),
+                  statBox(formatBytes(usage.totalBytes), 'Total'),
+                ),
+                el('div', 'part-spark', el('p', 'note', 'Uso en este dispositivo'), sparkline(samples('storage'), 'gold', { minSpan: 2 })),
+              )
+            : '',
+        );
+      }
+
+      function diskCard(disk, index) {
+        return el(
+          'article',
+          'card',
+          diskRow(disk, index),
+          disk.low ? el('span', 'state state-warning', 'Poco espacio') : null,
+        );
+      }
+
+      function renderDisks(container, disks) {
+        if (!disks.items.length) {
+          container.replaceChildren(issueList([disks.detail ?? 'Sin datos de los discos'], true));
+          return;
+        }
+        container.replaceChildren(el('div', 'stack', ...disks.items.map(diskCard)));
+      }
+
+      // --- Network ---
+      function renderNetwork(container, status) {
+        const tailscale = status.parts.filter((part) => part.id === 'tailscale').map(partCard);
+        container.replaceChildren(
+          el(
+            'div',
+            'stack',
+            el(
+              'article',
+              'card with-art',
+              art('#art-globe', '0 0 200 200', 'panel-art'),
+              ipRow('Local IP', status.network.lanIp),
+              ipRow('Tailscale IP', status.network.tailscaleIp),
+              transferBlock(status),
+              el('p', 'note', 'La IP pública no se consulta: habría que llamar a un servicio externo.'),
+            ),
+            ...tailscale,
+          ),
+        );
+      }
+
+      /** Copia una IP y lo muestra en el botón. El portapapeles moderno no siempre está: hay un plan B. */
+      async function copyIp(button, value) {
+        let copied = false;
+        try {
+          await navigator.clipboard.writeText(value);
+          copied = true;
+        } catch {
+          const area = el('textarea');
+          area.value = value;
+          area.style.position = 'fixed';
+          area.style.opacity = '0';
+          document.body.append(area);
+          area.select();
+          try {
+            copied = document.execCommand('copy');
+          } catch {}
+          area.remove();
+        }
+        notify(copied ? `Copiada: ${value}` : 'No se pudo copiar', copied ? 'green' : 'red');
+        if (!copied) return;
+        button.replaceChildren(icon('check', 14));
+        button.classList.add('done');
+        setTimeout(() => {
+          button.replaceChildren(icon('copy', 14));
+          button.classList.remove('done');
+        }, 1500);
+      }
+
+      // --- Avisos ---
+      const TOAST_MS = 6000;
+      const TOAST_LIMIT = 3;
+
+      function notify(text, color = 'purple') {
+        const toast = tinted(el('div', 'toast', text), color);
+        $('toasts').append(toast);
+        while ($('toasts').childElementCount > TOAST_LIMIT) $('toasts').firstElementChild.remove();
+        setTimeout(() => toast.remove(), TOAST_MS);
+      }
+
+      // --- Muestras ---
+      // No hay historial en los programas: cada dispositivo guarda las suyas, a medida que llegan estados.
+      const SAMPLES_KEY = 'lp-media-center:muestras';
+      const SAMPLE_CAP = 48;
+      const SAMPLE_GAP_MS = 60000;
+      const SPEED_GAP_MS = 14000;
+
+      function loadSamples() {
+        try {
+          const stored = JSON.parse(localStorage.getItem(SAMPLES_KEY));
+          return stored && typeof stored === 'object' ? stored : {};
+        } catch {
+          return {};
+        }
+      }
+
+      let sampleHistory = loadSamples();
+
+      const samples = (key) => (Array.isArray(sampleHistory[key]?.values) ? sampleHistory[key].values : []);
+
+      function recordSamples(status, now = Date.now()) {
+        const add = (key, value, gap = SAMPLE_GAP_MS) => addSample(sampleHistory, key, value, now, gap, SAMPLE_CAP);
+        add('services', servicesOnline(status.parts));
+        add('requests', status.requests.error ? null : status.requests.total);
+        add('today', status.downloads.today);
+        add('storage', storageUsage(status.disks.items)?.percent);
+        add('down', status.transfer?.downloadBps, SPEED_GAP_MS);
+        for (const part of status.parts) add(`part:${part.id}`, AVAILABILITY[part.state]);
+        try {
+          localStorage.setItem(SAMPLES_KEY, JSON.stringify(sampleHistory));
+        } catch {}
+      }
+
+      // --- Navegación ---
+      function showView(name) {
+        for (const view of document.querySelectorAll('.view')) view.hidden = view.id !== `view-${name}`;
+        for (const item of document.querySelectorAll('.nav-item')) {
+          if (item.dataset.view === name) item.setAttribute('aria-current', 'page');
+          else item.removeAttribute('aria-current');
+        }
+        setDrawer(false);
+        window.scrollTo(0, 0);
+      }
+
+      /** Desde una fila de Overview: lleva a su tarjeta en Services y la marca. */
+      function showPart(id) {
+        showView('services');
+        const card = document.querySelector(`#parts [data-part="${id}"]`);
+        if (!card) return;
+        card.classList.remove('flash');
+        void card.offsetWidth;
+        card.classList.add('flash');
+        const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        card.scrollIntoView({ block: 'center', behavior: reduced ? 'auto' : 'smooth' });
+      }
+
+      function setDrawer(open) {
+        document.body.classList.toggle('nav-open', open);
+        $('scrim').hidden = !open;
+        $('menu-toggle').setAttribute('aria-expanded', String(open));
+      }
+
+      function setUpChrome() {
+        for (const node of document.querySelectorAll('[data-icon]')) node.replaceWith(icon(node.dataset.icon, Number(node.dataset.size ?? 19)));
+        for (const node of document.querySelectorAll('[data-brand]')) node.replaceChildren(...brand(node.dataset.brand));
+        document.title = PRODUCT_NAME;
+        for (const item of document.querySelectorAll('.nav-item')) item.addEventListener('click', () => showView(item.dataset.view));
+        $('menu-toggle').addEventListener('click', () => setDrawer(!document.body.classList.contains('nav-open')));
+        $('scrim').addEventListener('click', () => setDrawer(false));
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape') setDrawer(false);
+        });
+        showView('overview');
+        renderMetrics(null);
+        tickClock();
+        setInterval(tickClock, CLOCK_MS);
+      }
+
+      function tickClock() {
+        const now = new Date();
+        $('clock-time').textContent = now.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false });
+        $('clock-date').textContent = now.toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric' });
+        if (!gateOpen) $('updated').textContent = lastUpdateText(lastStatusAt, now.getTime());
+      }
+
+      // --- Formularios ---
+      function field(label, type = 'text', value = '') {
+        const input = el('input');
+        input.type = type;
+        input.value = value;
+        input.autocomplete = 'off';
+        input.autocapitalize = 'off';
+        input.spellcheck = false;
+        return { input, node: el('label', 'field', label, input) };
+      }
+
+      function actionButton(label, onClick, primary = false) {
+        const button = el('button', primary ? 'button primary' : 'button', label);
+        button.type = 'button';
+        button.addEventListener('click', onClick);
+        return button;
+      }
+
+      /** Corre una acción de formulario: desactiva el botón y muestra el error en pantalla. */
+      async function runForm(button, errorNode, action, busyLabel) {
+        const label = button.textContent;
+        button.disabled = true;
+        button.textContent = busyLabel;
+        errorNode.textContent = '';
+        try {
+          await action();
+        } catch (error) {
+          errorNode.textContent = error.message || 'Algo falló';
+        } finally {
+          button.disabled = false;
+          button.textContent = label;
+        }
+      }
+
+      // --- Arranque ---
+      const REFRESH_MS = 15000;
+      const CLOCK_MS = 5000;
+
+      const $ = (id) => document.getElementById(id);
+      let lastStatus = null;
+      let lastStatusAt = null;
+      let loading = false;
+      let refreshAgain = false;
+      let gateOpen = false;
+      let downloadsBusy = false;
+      let downloadsResult = null;
+      const busyParts = new Map();
+      const actionResults = new Map();
+      const shownStates = new Map();
+      const ACTION_RESULT_MS = 60000;
+      const BULK_CONCURRENCY = 3;
+
+      function setUpTheme() {
+        const key = 'lp-media-center:tema';
+        $('theme').value = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+        $('theme').addEventListener('change', () => {
+          const value = $('theme').value;
+          if (value === 'light') document.documentElement.dataset.theme = value;
+          else delete document.documentElement.dataset.theme;
+          try {
+            localStorage.setItem(key, value);
+          } catch {}
+        });
+      }
+
+      async function toggleDownloads(paused) {
+        downloadsBusy = true;
+        downloadsResult = null;
+        renderDownloads($('downloads'), lastStatus.downloads, lastStatus.paused);
+        let result;
+        try {
+          result = await requestDownloads(paused ? 'resume' : 'pause');
+        } catch {
+          result = { ok: false, message: 'No llegó la respuesta de la PC' };
+        }
+        downloadsBusy = false;
+        downloadsResult = { ...result, until: Date.now() + ACTION_RESULT_MS };
+        await refresh();
+      }
+
+      function updateBulkButtons() {
+        const parts = lastStatus?.parts ?? [];
+        const blocked = busyParts.size > 0 || $('content').classList.contains('stale');
+        $('stop-all').disabled = blocked || partsForAction(parts, 'stop').length === 0;
+        $('start-all').disabled = blocked || partsForAction(parts, 'start').length === 0;
+      }
+
+      function runPartAction(part, action) {
+        const verb = actionLabel('stop', false, part.control.kind);
+        if (action === 'stop' && !window.confirm(`¿${verb} ${part.name}?\n\n${part.control.stopWarning}`)) return;
+        performPartAction(part, action);
+      }
+
+      function runAllParts(action) {
+        const parts = partsForAction(lastStatus.parts, action);
+        if (action === 'stop') {
+          const names = parts.map((part) => part.name).join(', ');
+          const question = `¿Apagar todo?\n\nSe frenan: ${names}.\n\nDeja de funcionar lo que dependa de ellos hasta que los prendas. Tailscale y este panel siguen andando, para poder prender todo de nuevo.`;
+          if (!window.confirm(question)) return;
+        }
+        // De a pocos: el navegador abre 6 conexiones por servidor, y el estado tiene que seguir actualizándose.
+        for (const part of parts) markPartBusy(part, action);
+        const pending = [...parts];
+        const worker = async () => {
+          while (pending.length) await performPartAction(pending.shift(), action);
+        };
+        for (let i = 0; i < BULK_CONCURRENCY; i += 1) worker();
+      }
+
+      function markPartBusy(part, action) {
+        busyParts.set(part.id, action);
+        actionResults.delete(part.id);
+        renderPartViews(lastStatus);
+        updateBulkButtons();
+      }
+
+      async function performPartAction(part, action) {
+        markPartBusy(part, action);
+        let result;
+        try {
+          result = await requestPartAction(part.id, action);
+        } catch {
+          result = { ok: false, message: 'No llegó la respuesta de la PC' };
+        }
+        busyParts.delete(part.id);
+        actionResults.set(part.id, { ...result, until: Date.now() + ACTION_RESULT_MS });
+        await refresh();
+      }
+
+      function showBanner(title, text) {
+        const heading = document.createElement('strong');
+        heading.textContent = title;
+        const body = document.createElement('span');
+        body.textContent = text;
+        $('banner').replaceChildren(heading, body);
+        $('banner').hidden = false;
+      }
+
+      function seerrPart() {
+        return lastStatus?.parts.find((part) => part.id === 'seerr');
+      }
+
+      function openSeerr() {
+        const part = seerrPart();
+        if (!part?.port) return;
+        if (isMobile) openInBrowser(serviceUrl(part.port));
+        else window.open(serviceUrl(part.port), '_blank');
+      }
+
+      /** El encabezado refleja el estado real. */
+      function setGlobal(level, title, text) {
+        $('global').dataset.level = level;
+        $('headline').textContent = title;
+        $('summary').textContent = text;
+      }
+
+      /** Las vistas donde hay tarjetas con botones de programas. */
+      function renderPartViews(status) {
+        renderParts($('parts'), status.parts);
+        renderNetwork($('network'), status);
+      }
+
+      /** Avisa lo que cambió sin que nadie lo pidiera: lo pedido ya muestra su resultado en la tarjeta. */
+      function announceChanges(parts) {
+        for (const part of parts) {
+          const message = describeChange(part, shownStates.get(part.id));
+          shownStates.set(part.id, part.state);
+          if (message && !actionResults.has(part.id)) notify(message, partColor(part));
+        }
+      }
+
+      function render(status) {
+        recordSamples(status);
+        renderOverview(status);
+        renderDownloadsActivity(status);
+        renderDownloads($('downloads'), status.downloads, status.paused);
+        renderRequests($('requests'), status.requests);
+        renderPartViews(status);
+        renderStorageSummary(status.disks);
+        renderDisks($('disks'), status.disks);
+        $('downloads-meta').textContent = downloadsMeta(status.downloads);
+        $('requests-meta').textContent = requestsMeta(status.requests);
+        $('parts-meta').textContent = partsMeta(status.parts);
+        $('disks-meta').textContent = disksMeta(status.disks);
+        const global = globalStatus(status.parts, status.disks);
+        setGlobal(global.level, global.title, global.text);
+        announceChanges(status.parts);
+        lastStatusAt = Date.now();
+        tickClock();
+      }
+
+      function showFailure(error) {
+        if (isMobile && !lastStatus && !error.reachable) {
+          showSearch();
+          return;
+        }
+        const retry = `Sigo reintentando cada ${REFRESH_MS / 1000} segundos.`;
+        const since = lastStatus ? ` Lo de abajo es de las ${formatClock(lastStatus.generatedAt)}.` : '';
+        if (error.reachable) {
+          showBanner('El backend de la PC respondió con un error', `${retry}${since}`);
+        } else {
+          showBanner(
+            'No llego a la PC',
+            `Revisá que esté prendida y con el backend iniciado. ${retry}${since}`,
+          );
+        }
+        setGlobal('down', error.reachable ? 'El backend respondió con un error' : 'No llego a la PC', 'Sin conexión con la PC');
+        $('content').classList.add('stale');
+        $('open-seerr').disabled = true;
+        for (const button of document.querySelectorAll('.part-action, .open-service, .needs-pc')) button.disabled = true;
+        for (const badge of document.querySelectorAll('.live')) {
+          badge.classList.add('off');
+          badge.textContent = NO_DATA;
+        }
+        updateBulkButtons();
+      }
+
+      /** Pantallas del celular que reemplazan al panel: emparejar, iniciar sesión o buscar. */
+      function showGate(...children) {
+        gateOpen = true;
+        document.body.classList.add('gated');
+        $('banner').hidden = true;
+        $('content').hidden = true;
+        $('gate').replaceChildren(el('article', 'card', ...children));
+        $('gate').hidden = false;
+        $('updated').textContent = '';
+      }
+
+      function closeGate() {
+        gateOpen = false;
+        document.body.classList.remove('gated');
+        $('gate').hidden = true;
+        $('content').hidden = false;
+      }
+
+      function showPairing() {
+        $('summary').textContent = 'Primera vez en este celular';
+        const code = field('Código');
+        const host = field('Dirección de la PC (LAN o Tailscale)');
+        host.input.placeholder = 'Vacío: la busca en el Wi-Fi';
+        const error = el('p', 'form-error');
+        const button = actionButton('Emparejar', async () => {
+          await runForm(button, error, async () => {
+            await pairWithCode(code.input.value, host.input.value);
+            showLogin();
+          }, 'Buscando la PC…');
+        }, true);
+        showGate(
+          el('h2', null, 'Emparejar con la PC'),
+          el('p', 'muted small', 'En la app de Windows, abrí Settings, "Celulares", tocá "Emparejar un celular" y escribí acá el código. Con el celu en el Wi-Fi de casa, la PC se busca sola.'),
+          code.node,
+          host.node,
+          el('div', 'row-actions', button),
+          error,
+        );
+      }
+
+      function showLogin() {
+        $('summary').textContent = 'Conectado a la PC';
+        const user = field('Usuario');
+        const password = field('Contraseña', 'password');
+        const error = el('p', 'form-error');
+        const button = actionButton('Entrar', async () => {
+          await runForm(button, error, async () => {
+            await login(user.input.value.trim(), password.input.value);
+            closeGate();
+            await refresh();
+          }, 'Entrando…');
+        }, true);
+        showGate(
+          el('h2', null, 'Iniciar sesión'),
+          el('p', 'muted small', 'Usá el usuario y la contraseña que creaste en la app de Windows.'),
+          user.node,
+          password.node,
+          el('div', 'row-actions', button, actionButton('Olvidar esta PC', confirmForget)),
+          error,
+        );
+      }
+
+      function showSearch(message) {
+        $('summary').textContent = 'Sin conexión con la PC';
+        const host = field('Dirección de la PC (LAN o Tailscale)');
+        host.input.placeholder = 'Vacío: la busca en el Wi-Fi';
+        const error = el('p', 'form-error', message ?? '');
+        const search = actionButton('Buscar PC', async () => {
+          await runForm(search, error, async () => {
+            const typed = normalizeHost(host.input.value);
+            const found = typed ? ((await isOurPc(typed, REQUEST_TIMEOUT_MS)) && (usePc(typed), typed)) : await findPc({ force: true });
+            if (!found) throw new Error('No la encontré. Revisá que la PC esté prendida y el celu en su red, o conectate a Tailscale.');
+            enterPanel();
+          }, 'Buscando…');
+        }, true);
+        showGate(
+          el('h2', null, 'No llego a la PC'),
+          el('p', 'muted small', 'Buscar recorre la red a la que está conectado este celular.'),
+          host.node,
+          el('div', 'row-actions', search, actionButton('Olvidar esta PC', confirmForget)),
+          error,
+        );
+      }
+
+      function confirmForget() {
+        if (!window.confirm('¿Olvidar esta PC? Vas a tener que emparejar el celular de nuevo.')) return;
+        forgetPc();
+        showPairing();
+      }
+
+      function enterPanel() {
+        if (!mobile.token) {
+          showLogin();
+          return;
+        }
+        closeGate();
+        refresh();
+      }
+
+      async function startMobile() {
+        $('connection-section').hidden = false;
+        if (!mobile.deviceId) {
+          showPairing();
+          return;
+        }
+        $('summary').textContent = 'Buscando la PC…';
+        if (await findPc()) enterPanel();
+        else showSearch();
+      }
+
+      function renderConnection() {
+        // No pisar lo que se está escribiendo con cada actualización.
+        const typing = $('connection').querySelector('input');
+        if (typing && (typing.value || document.activeElement === typing)) return;
+        const via = isTailscaleHost(pcHost) ? 'Tailscale' : 'red local';
+        $('connection-meta').textContent = pcHost ? 'Por ' + via : 'Sin conexión';
+        const error = el('p', 'form-error');
+        const search = actionButton('Buscar PC', async () => {
+          await runForm(search, error, async () => {
+            if (!(await findPc({ force: true }))) throw new Error('No la encontré');
+            await refresh();
+          }, 'Buscando…');
+        });
+        const host = field('Dirección de la PC (LAN o Tailscale)');
+        const connect = actionButton('Conectar', async () => {
+          await runForm(connect, error, async () => {
+            const typed = normalizeHost(host.input.value);
+            if (!isAllowedPcHost(typed)) throw new Error('Esa dirección no es de una red privada ni de Tailscale');
+            if (!(await isOurPc(typed, REQUEST_TIMEOUT_MS))) throw new Error('No llegué a la PC en ' + typed);
+            usePc(typed);
+            host.input.value = '';
+            await refresh();
+          }, 'Conectando…');
+        }, true);
+        const leave = actionButton('Cerrar sesión', async () => {
+          await logout();
+          showLogin();
+        });
+        $('connection').replaceChildren(
+          el(
+            'article',
+            'card',
+            el('p', 'small', pcHost ? 'Conectado a ' + pcHost + ' por ' + via : 'Sin conexión'),
+            host.node,
+            el('div', 'row-actions', connect, search, leave, actionButton('Olvidar esta PC', confirmForget)),
+            error,
+          ),
+        );
+      }
+
+      // --- Celulares, solo en la app de Windows ---
+      async function setupRequest(path, body) {
+        const response = await apiRequest(pcHost, path, { method: body ? 'POST' : 'GET', body });
+        const json = await response.json();
+        if (!response.ok) throw new Error(json.error ?? 'No se pudo');
+        return json;
+      }
+
+      async function loadDevices(shownCode = null) {
+        let setup;
+        try {
+          setup = await setupRequest('/api/setup');
+        } catch {
+          $('devices').replaceChildren(issueList(['No se pudo leer la configuración de celulares'], true));
+          return;
+        }
+        const count = setup.devices.length;
+        $('devices-meta').textContent = !setup.hasPassword ? 'Falta crear la contraseña' : count === 1 ? '1 emparejado' : count + ' emparejados';
+
+        const error = el('p', 'form-error');
+        const cards = [];
+
+        const user = field('Usuario', 'text', setup.user ?? '');
+        const password = field(setup.hasPassword ? 'Contraseña nueva' : 'Contraseña', 'password');
+        const repeat = field('Repetir contraseña', 'password');
+        const save = actionButton(setup.hasPassword ? 'Cambiar contraseña' : 'Crear contraseña', async () => {
+          await runForm(save, error, async () => {
+            if (password.input.value !== repeat.input.value) throw new Error('Las contraseñas no coinciden');
+            await setupRequest('/api/setup/password', { user: user.input.value, password: password.input.value });
+            await loadDevices();
+          }, 'Guardando…');
+        }, !setup.hasPassword);
+        cards.push(
+          el(
+            'article',
+            'card',
+            el('h3', null, setup.hasPassword ? 'Contraseña del panel' : 'Primero, creá la contraseña del panel'),
+            el('p', 'muted small', 'La pide el celular para entrar. En esta PC no hace falta. Cambiarla cierra las sesiones de los celulares.'),
+            user.node,
+            password.node,
+            repeat.node,
+            el('div', 'row-actions', save),
+          ),
+        );
+
+        const pair = actionButton('Emparejar un celular', async () => {
+          await runForm(pair, error, async () => loadDevices(await setupRequest('/api/setup/pairing', {})), 'Creando…');
+        }, setup.hasPassword);
+        pair.disabled = !setup.hasPassword;
+        const network = lastStatus?.network;
+        cards.push(
+          el(
+            'article',
+            'card',
+            el('h3', null, 'Agregar un celular'),
+            shownCode ? el('p', 'pair-code', shownCode.code) : null,
+            shownCode
+              ? el('p', 'muted small', 'Escribilo en la app del celular. Sirve una sola vez y vence en 10 minutos. Si el celu no encuentra la PC, usá la dirección ' + (network?.lanIp ?? 'de LAN') + (network?.tailscaleIp ? ' o, por Tailscale, ' + network.tailscaleIp : '') + '.')
+              : el('p', 'muted small', 'Crea un código de un solo uso para escribir en el celular.'),
+            el('div', 'row-actions', pair),
+          ),
+        );
+
+        for (const device of setup.devices) {
+          const remove = actionButton('Quitar', async () => {
+            if (!window.confirm('¿Quitar ' + device.name + '? Va a tener que emparejarse de nuevo.')) return;
+            await runForm(remove, error, async () => {
+              await setupRequest('/api/setup/devices/' + device.id + '/remove', {});
+              await loadDevices();
+            }, 'Quitando…');
+          });
+          cards.push(
+            el(
+              'article',
+              'card device-row',
+              el('div', null, el('h3', null, device.name), el('p', 'muted small', 'Desde el ' + new Date(device.createdAt).toLocaleDateString('es-AR'))),
+              remove,
+            ),
+          );
+        }
+        $('devices').replaceChildren(el('div', 'stack', ...cards, error));
+      }
+
+      async function refresh() {
+        if (gateOpen) return;
+        if (loading) {
+          refreshAgain = true;
+          return;
+        }
+        loading = true;
+        $('refresh').disabled = true;
+        try {
+          lastStatus = await fetchStatus();
+          if (isMobile) await rememberNetwork(lastStatus.network);
+          render(lastStatus);
+          if (isMobile) renderConnection();
+          $('banner').hidden = true;
+          $('content').classList.remove('stale');
+          $('open-seerr').disabled = seerrPart()?.state === 'down';
+          updateBulkButtons();
+        } catch (error) {
+          if (error.unauthorized) {
+            mobile.token = null;
+            saveMobile();
+            showLogin();
+          } else {
+            showFailure(error);
+            // La IP de la PC pudo cambiar: se busca de nuevo.
+            if (isMobile && !error.reachable && (await findPc())) refreshAgain = true;
+          }
+        } finally {
+          loading = false;
+          $('refresh').disabled = false;
+        }
+        if (refreshAgain) {
+          refreshAgain = false;
+          await refresh();
+        }
+      }
+
+      $('refresh').addEventListener('click', refresh);
+      $('stop-all').addEventListener('click', () => runAllParts('stop'));
+      $('start-all').addEventListener('click', () => runAllParts('start'));
+      $('open-seerr').addEventListener('click', openSeerr);
+
+      setInterval(() => {
+        if (!document.hidden) refresh();
+      }, REFRESH_MS);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) refresh();
+      });
+      const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
+      const SKIPPED_UPDATE_KEY = 'lp-media-center:actualizacion-omitida';
+
+      async function checkForUpdate() {
+        const update = await findUpdate();
+        let skipped = null;
+        try {
+          skipped = localStorage.getItem(SKIPPED_UPDATE_KEY);
+        } catch {}
+        if (!update || update.version === skipped) {
+          $('update').hidden = true;
+          return;
+        }
+        const how = isMobile
+          ? 'Se descarga el APK: abrilo para instalarlo encima, sin perder el emparejamiento.'
+          : 'Se descarga el instalador: al abrirlo, cierra la app, la actualiza y la vuelve a abrir.';
+        const later = actionButton('Más tarde', () => {
+          try {
+            localStorage.setItem(SKIPPED_UPDATE_KEY, update.version);
+          } catch {}
+          $('update').hidden = true;
+        });
+        $('update').replaceChildren(
+          el('p', null, el('strong', null, 'Hay una versión nueva: ' + update.version + '. '), how),
+          actionButton('Descargar', () => openInBrowser(update.url), true),
+          later,
+        );
+        $('update').hidden = false;
+      }
+
+      setTimeout(checkForUpdate, 5000);
+      setInterval(checkForUpdate, UPDATE_EVERY_MS);
+      setUpChrome();
+      setUpTheme();
+      if (isMobile) {
+        startMobile();
+      } else {
+        $('devices-section').hidden = false;
+        refresh().then(() => loadDevices());
+      }
+    </script>
+  </body>
+</html>
