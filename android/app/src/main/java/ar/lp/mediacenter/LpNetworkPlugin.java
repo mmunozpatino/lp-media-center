@@ -14,13 +14,75 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.google.mlkit.vision.barcode.common.Barcode;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 
 import java.net.Inet4Address;
 import java.net.InetAddress;
 
-/** Lo que el JavaScript no puede hacer solo: ver la IP del Wi-Fi y abrir una web en el navegador. */
+/**
+ * Lo que el JavaScript no puede hacer solo: ver la IP del Wi-Fi, abrir una web en el navegador, leer un QR y
+ * recibir el enlace de emparejamiento cuando la cámara abre la app.
+ */
 @CapacitorPlugin(name = "LpNetwork")
 public class LpNetworkPlugin extends Plugin {
+
+    private static final String PAIR_SCHEME = "lpcinevault";
+
+    /** Enlace del QR que todavía no leyó la interfaz. */
+    private String pendingPairLink = null;
+
+    @Override
+    public void load() {
+        rememberPairLink(getActivity().getIntent());
+    }
+
+    @Override
+    protected void handleOnNewIntent(Intent intent) {
+        super.handleOnNewIntent(intent);
+        rememberPairLink(intent);
+    }
+
+    private void rememberPairLink(Intent intent) {
+        if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) return;
+        Uri data = intent.getData();
+        if (data != null && PAIR_SCHEME.equals(data.getScheme())) {
+            pendingPairLink = data.toString();
+            // Que no se vuelva a leer si la actividad se recrea.
+            intent.setData(null);
+        }
+    }
+
+    /** Entrega el enlace del QR una sola vez. */
+    @PluginMethod
+    public void takePairLink(PluginCall call) {
+        JSObject result = new JSObject();
+        result.put("url", pendingPairLink == null ? JSObject.NULL : pendingPairLink);
+        pendingPairLink = null;
+        call.resolve(result);
+    }
+
+    /** Abre el lector de QR de Google Play Services y devuelve el texto leído. */
+    @PluginMethod
+    public void scanQr(PluginCall call) {
+        GmsBarcodeScannerOptions options =
+                new GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build();
+        GmsBarcodeScanning.getClient(getActivity(), options)
+                .startScan()
+                .addOnSuccessListener(barcode -> {
+                    JSObject result = new JSObject();
+                    result.put("canceled", false);
+                    result.put("text", barcode.getRawValue());
+                    call.resolve(result);
+                })
+                .addOnCanceledListener(() -> {
+                    JSObject result = new JSObject();
+                    result.put("canceled", true);
+                    call.resolve(result);
+                })
+                .addOnFailureListener(error -> call.reject("No se pudo abrir el lector de QR. Revisá que Google Play Services esté actualizado."));
+    }
 
     /** Devuelve la IP privada del Wi-Fi o Ethernet. Ignora VPN como Tailscale y los datos móviles. */
     @PluginMethod

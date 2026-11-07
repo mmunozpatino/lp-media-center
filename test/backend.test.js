@@ -1119,6 +1119,17 @@ describe('login y emparejamiento', () => {
     assert.equal(auth.isValidToken(token), false);
   });
 
+  it('le cambia el nombre a un dispositivo, sin caracteres de control', () => {
+    const auth = newAuth();
+    const { deviceId } = pair(auth);
+    assert.deepEqual(auth.renameDevice(deviceId, { name: '  Tablet\n del living  ' }), [200, { ok: true, name: 'Tablet del living' }]);
+    assert.equal(auth.setupStatus().devices[0].name, 'Tablet del living');
+    assert.equal(auth.renameDevice(deviceId, { name: '   ' })[0], 400);
+    assert.equal(auth.renameDevice(deviceId, {})[0], 400);
+    assert.equal(auth.renameDevice('abc', { name: 'Otra' })[0], 404);
+    assert.equal(auth.renameDevice(deviceId, { name: 'x'.repeat(80) })[1].name.length, 60);
+  });
+
   it('sobrevive a un reinicio, sin guardar la contraseña ni el token en claro', () => {
     const file = path.join(tmp, 'auth-persist.json');
     const first = createAuth({ file });

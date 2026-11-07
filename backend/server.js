@@ -865,6 +865,11 @@ const PAIRING_MAX_FAILURES = 5;
 const PAIRING_MAX_STARTS = 20;
 const LOGIN_MAX_FAILURES = 5;
 const LOGIN_LOCK_MS = 60 * 1000;
+/** Nombre que se muestra de un dispositivo: sin caracteres de control y de hasta 60 letras. */
+export function cleanDeviceName(name) {
+  return typeof name === 'string' ? name.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) : '';
+}
+
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 
 function hashPassword(password, salt) {
@@ -961,7 +966,7 @@ export function createAuth({ file = AUTH_FILE, now = Date.now } = {}) {
       const sealedSecret = Buffer.from(secretBytes.map((byte, index) => byte ^ key[index])).toString('hex');
       const device = {
         id: randomBytes(16).toString('hex'),
-        name: typeof name === 'string' && name.trim() ? name.trim().slice(0, 60) : 'Celular',
+        name: cleanDeviceName(name) || 'Celular',
         secret: secretBytes.toString('hex'),
         createdAt: new Date(now()).toISOString(),
       };
@@ -1019,6 +1024,16 @@ export function createAuth({ file = AUTH_FILE, now = Date.now } = {}) {
       const tokenHash = sha256(String(token));
       data.sessions = data.sessions.filter((session) => session.tokenHash !== tokenHash);
       save();
+    },
+
+    renameDevice(id, { name } = {}) {
+      const device = data.devices.find((candidate) => candidate.id === id);
+      if (!device) return [404, { error: 'No existe' }];
+      const clean = cleanDeviceName(name);
+      if (!clean) return [400, { error: 'Falta el nombre' }];
+      device.name = clean;
+      save();
+      return [200, { ok: true, name: clean }];
     },
 
     removeDevice(id) {
@@ -1199,6 +1214,8 @@ export function createApp(collect, { allowedOrigins, act = null, auth = null, do
       if (post && pathname === '/api/setup/pairing') return sendJson(res, 200, auth.newPairing());
       const remove = /^\/api\/setup\/devices\/([a-f0-9]+)\/remove$/.exec(pathname);
       if (post && remove) return sendJson(res, ...auth.removeDevice(remove[1]));
+      const rename = /^\/api\/setup\/devices\/([a-f0-9]+)\/rename$/.exec(pathname);
+      if (post && rename) return sendJson(res, ...auth.renameDevice(rename[1], await readJsonBody(req)));
       return sendJson(res, 404, { error: 'No existe' });
     }
 
