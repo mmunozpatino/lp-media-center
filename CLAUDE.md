@@ -61,6 +61,12 @@ Escucha en `0.0.0.0`, solo IPv4, porque la PC tiene IPv6 público.
 - **Datos:** `~/.lp-media-center/auth.json`, fuera del repo y de AppData: hash scrypt, secretos de dispositivos y hash de sesiones.
 - **Emparejar:** código de 12 caracteres que se crea en la app de Windows, de un solo uso, 10 minutos, se anula a los 5 errores.
   La PC prueba que lo conoce con un HMAC antes de que el celular mande nada, y el secreto viaja cifrado con él.
+  El código se puede copiar y trae un QR (generador propio en la sección "QR" de la interfaz) con
+  `lpcinevault://emparejar?codigo=…&pc=<IP>`. En Android, "Escanear QR" usa el lector de Google Play Services
+  (`play-services-code-scanner`, única dependencia nativa agregada; no pide permiso de cámara), y si la cámara abre
+  ese enlace, la app llega con los datos cargados pero no empareja sola. Cada dispositivo tiene nombre: se elige al
+  emparejar y se cambia desde la PC (`/api/setup/devices/<id>/rename`). Sin probar con una cámara real: en el emulador
+  se probó el enlace con `adb` y que el lector abre y se cierra.
 - **Entrar:** `/api/identify` prueba que es la PC antes de mandar la contraseña. Sesión de 30 días; 5 errores frenan un minuto.
 - **Firewall:** `scripts/firewall.ps1` crea `LP Media Center (LAN y Tailscale)`, atada al `.exe`, y `Seerr (Tailscale)`, en perfil Privado. Si se cancela el cartel de Windows al abrir el puerto, se crean reglas de bloqueo que ganan sobre el permiso: ese script las borra. Sin probar desde otro equipo. Bazarr y qBittorrent no tienen regla
   de LAN: la flecha desde el celu solo los abre por Tailscale.

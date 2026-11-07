@@ -14,6 +14,7 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.google.mlkit.common.MlKitException;
 import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
@@ -81,7 +82,19 @@ public class LpNetworkPlugin extends Plugin {
                     result.put("canceled", true);
                     call.resolve(result);
                 })
-                .addOnFailureListener(error -> call.reject("No se pudo abrir el lector de QR. Revisá que Google Play Services esté actualizado."));
+                .addOnFailureListener(error -> {
+                    // Cerrar el lector no es una falla. Con la X llega como cancelado; con "atrás", el lector
+                    // devuelve el error interno 13 ("Failed to scan code"), comprobado en el emulador.
+                    int code = error instanceof MlKitException ? ((MlKitException) error).getErrorCode() : -1;
+                    if (code == MlKitException.CANCELLED || code == MlKitException.INTERNAL) {
+                        JSObject result = new JSObject();
+                        result.put("canceled", true);
+                        call.resolve(result);
+                        return;
+                    }
+                    android.util.Log.w("LpNetwork", "Lector de QR, error " + code, error);
+                    call.reject("No se pudo abrir el lector de QR. Revisá que Google Play Services esté actualizado.");
+                });
     }
 
     /** Devuelve la IP privada del Wi-Fi o Ethernet. Ignora VPN como Tailscale y los datos móviles. */
