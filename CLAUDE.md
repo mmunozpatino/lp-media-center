@@ -205,6 +205,18 @@ En los tests van IP y nombres de ejemplo. Los commits usan el mail privado de Gi
   de desarrollo y no busca actualizaciones.
 - **Aviso:** la app consulta `api.github.com` al abrir y cada 6 horas. Si hay una más nueva, ofrece descargarla: en Android el
   APK, que se instala encima; en Windows el instalador, que cierra la app y su backend (`build/installer.nsh`) y la reinstala.
+  El aviso lista los títulos de la release nueva. Hasta el 2026-11-07 la CSP no dejaba leer `build-info.json` en Windows
+  (`app://` no entra en `http:`), así que la app de Windows nunca avisó; ahora `connect-src` incluye `'self'`.
+- **Novedades (changelog):** salen de los mensajes de commit, así que **cada mensaje es público y lo lee la usuaria en la app**:
+  en español, entendible y sin datos personales. Primera línea = título; el cuerpo, sin `Co-Authored-By` ni `Signed-off-by`,
+  es la explicación. `scripts/changelog.mjs` toma los tags `v0.1.*` que son ancestros de HEAD: cada versión son los commits
+  desde el tag anterior, y la nueva, los que van del último tag a HEAD (si una corrida falló sin publicar, sus commits pasan a
+  la siguiente). Por eso el workflow hace checkout con `fetch-depth: 0`. `build-info.mjs` escribe además `ui/changelog.json`
+  (últimas 40 versiones, no se commitea), y el job `publicar` usa `changelog.mjs --notas` como texto de la release.
+- **Diálogo de novedades:** al abrir, si la versión de `build-info.json` es más nueva que la guardada en `localStorage`
+  (`lp-media-center:novedades-vistas`), muestra los cambios de las versiones posteriores a esa, y la guarda al cerrarlo (con
+  "Listo" o Escape). Sin versión guardada muestra solo la actual: no se distingue una instalación nueva de una
+  actualización desde una versión sin novedades. En desarrollo no muestra nada. El historial está en Settings, "Novedades".
 - **Firma del APK:** clave en `~/.lp-media-center-firma` (`lp-release.jks` y `clave.txt`), fuera del repo. En GitHub está en los
   secretos `ANDROID_KEYSTORE_BASE64` y `ANDROID_KEYSTORE_PASSWORD`. **Si se pierde, hay que desinstalar la app en cada
   dispositivo.** `npm run apk` la usa si está, para que el APK local también se instale encima.

@@ -7,9 +7,9 @@ import { describe, it } from 'node:test';
 // La interfaz es un solo HTML: se prueba la sección de textos, que no toca el DOM.
 const html = readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
 const textos = /--- Textos ---([\s\S]*)\/\/ --- Fin de textos ---/.exec(html)[1];
-const { isNewerVersion, pickReleaseAsset, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote } =
+const { isNewerVersion, pickReleaseAsset, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote } =
   new Function(
-    `${textos}; return { isNewerVersion, pickReleaseAsset, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote };`,
+    `${textos}; return { isNewerVersion, pickReleaseAsset, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote };`,
   )();
 
 const require = createRequire(import.meta.url);
@@ -20,6 +20,7 @@ const { findFirst, hmacHex, isAllowedPcHost, isPrivateLan, isTailscaleHost, norm
 
 const { isReleaseUrl, isSeerrUrl, isServiceUrl } = require('../electron/seerr-url.cjs');
 const { backendScriptPath } = require('../electron/backend.cjs');
+const { releaseNotes } = await import('../scripts/changelog.mjs');
 
 describe('textos de la interfaz', () => {
   it('formatea tamaños', () => {
@@ -427,6 +428,63 @@ describe('actualizaciones', () => {
     assert.equal(pickReleaseAsset(assets, false).name, 'LP-Cine-Vault-Setup.exe');
     assert.equal(pickReleaseAsset([], true), null);
     assert.equal(pickReleaseAsset(undefined, false), null);
+  });
+});
+
+describe('novedades', () => {
+  const change = (title, body = '') => ({ title, body });
+  const versions = changelogVersions({
+    versions: [
+      { version: '0.1.3', date: '2026-11-06', changes: [change('Tercera')] },
+      { version: '0.1.5', date: '2026-11-08', changes: [change('Quinta', 'Con detalle')] },
+      { version: '0.1.4', date: '2026-11-07', changes: [] },
+      { version: '0.1.10', date: '2026-11-09', changes: [change('Décima')] },
+      { version: 'cualquiera', changes: [change('No')] },
+      { version: '0.1.2', changes: [{ title: '  ' }, { title: 5 }, change('Segunda')] },
+    ],
+  });
+
+  it('limpia y ordena el changelog de la más nueva a la más vieja', () => {
+    assert.deepEqual(versions.map((entry) => entry.version), ['0.1.10', '0.1.5', '0.1.4', '0.1.3', '0.1.2']);
+    assert.deepEqual(versions.at(-1), { version: '0.1.2', date: null, changes: [change('Segunda')] });
+    assert.deepEqual(changelogVersions(null), []);
+    assert.deepEqual(changelogVersions({ versions: 'x' }), []);
+  });
+
+  it('muestra las versiones nuevas desde la última vista, sin las vacías ni las futuras', () => {
+    const shown = (current, lastSeen) => newsToShow(versions, current, lastSeen).map((entry) => entry.version);
+    assert.deepEqual(shown('0.1.5', '0.1.2'), ['0.1.5', '0.1.3']);
+    assert.deepEqual(shown('0.1.10', '0.1.5'), ['0.1.10']);
+    assert.deepEqual(shown('0.1.5', '0.1.5'), []);
+    assert.deepEqual(shown('0.1.3', '0.1.5'), []);
+    assert.deepEqual(shown('0.1.4', '0.1.3'), []);
+  });
+
+  it('la primera vez muestra solo la versión actual, y en desarrollo nada', () => {
+    assert.deepEqual(newsToShow(versions, '0.1.5', null).map((entry) => entry.version), ['0.1.5']);
+    assert.deepEqual(newsToShow(versions, '0.1.4', null), []);
+    assert.deepEqual(newsToShow(versions, null, null), []);
+    assert.deepEqual(newsToShow(versions, undefined, '0.1.2'), []);
+  });
+
+  it('titula el diálogo según cuántas versiones junta', () => {
+    assert.equal(newsTitle([versions[0]]), 'Novedades de la versión 0.1.10');
+    assert.equal(newsTitle(versions.slice(1, 4)), 'Novedades desde la versión 0.1.3');
+    assert.equal(changeCount(1), '1 cambio');
+    assert.equal(changeCount(3), '3 cambios');
+  });
+
+  it('muestra la fecha del commit sin correrla por la zona horaria', () => {
+    assert.match(changelogDate('2026-11-07'), /^7 (de )?nov\.? (de )?2026$/);
+    assert.equal(changelogDate(null), null);
+    assert.equal(changelogDate('ayer'), null);
+  });
+
+  it('lee los títulos del texto que arma el workflow para la release', () => {
+    const notes = releaseNotes({ changes: [change('Uno', 'Explicación\n\nOtro párrafo'), change('Dos'), change('Tres'), change('Cuatro'), change('Cinco')] });
+    assert.deepEqual(releaseTitles(notes), { titles: ['Uno', 'Dos', 'Tres', 'Cuatro'], more: 1 });
+    assert.deepEqual(releaseTitles('- **Negrita** y `código`\n* Otra\nTexto suelto\n  - sangrado'), { titles: ['Negrita y código', 'Otra'], more: 0 });
+    assert.deepEqual(releaseTitles(null), { titles: [], more: 0 });
   });
 });
 

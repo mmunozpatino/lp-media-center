@@ -33,7 +33,10 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
+      # Todo el historial y los tags: las novedades salen de los commits desde la versión anterior.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -69,7 +72,10 @@ jobs:
     needs: test
     runs-on: windows-latest
     steps:
+      # Todo el historial y los tags: las novedades salen de los commits desde la versión anterior.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -87,6 +93,13 @@ jobs:
     needs: [android, windows]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/changelog.mjs --notas "$RUNNER_TEMP/novedades.md"
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
@@ -98,4 +111,4 @@ jobs:
           LP-Cine-Vault.apk LP-Cine-Vault-Setup.exe
           --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
           --title "LP Cine Vault $LP_VERSION"
-          --notes "Versión generada desde $GITHUB_SHA."
+          --notes-file "$RUNNER_TEMP/novedades.md"

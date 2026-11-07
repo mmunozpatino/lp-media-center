@@ -4,11 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <!-- Todo va en este archivo. connect-src admite cualquier http: la dirección del backend se
-         decide en la sección "Conexión" y va a cambiar con la IP de la PC. De afuera solo se cargan
+         decide en la sección "Conexión" y va a cambiar con la IP de la PC. 'self' es para build-info.json y
+         changelog.json, que viajan con la app (en Windows, app://, que http: no cubre). De afuera solo se cargan
          las miniaturas de TMDB, y sin ellas se dibuja un marcador. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src http: https://api.github.com; img-src https://image.tmdb.org data:; base-uri 'none'; form-action 'none'"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' http: https://api.github.com; img-src https://image.tmdb.org data:; base-uri 'none'; form-action 'none'"
     />
     <title>Media Center</title>
     <script>
@@ -449,9 +450,180 @@
         background: color-mix(in srgb, var(--purple) 12%, var(--card));
       }
 
-      .update p {
+      .update-text {
         flex: 1 1 260px;
+        min-width: 0;
+      }
+
+      .update-notes {
+        margin: 6px 0 0;
+        padding-left: 18px;
+        color: var(--text-2);
+        font-size: 13px;
+      }
+
+      /* --- Novedades --- */
+      .news-history {
+        display: grid;
+        gap: 8px;
+      }
+
+      .news-item > summary {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 2px 12px;
+        margin: -14px -16px;
+        padding: 14px 16px;
+        border-radius: 12px;
+        cursor: pointer;
+        list-style: none;
+      }
+
+      .news-item > summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .news-item > summary::before {
+        content: '';
+        width: 7px;
+        height: 7px;
+        margin-right: 2px;
+        border-right: 2px solid var(--muted);
+        border-bottom: 2px solid var(--muted);
+        transform: translateY(-2px) rotate(-45deg);
+        transition: transform 0.15s;
+      }
+
+      .news-item[open] > summary::before {
+        transform: translateY(-3px) rotate(45deg);
+      }
+
+      .news-item > summary:focus-visible {
+        outline: 2px solid var(--purple);
+        outline-offset: 2px;
+      }
+
+      .news-item-name {
+        flex: 1;
+        font-weight: 600;
+      }
+
+      .news-item[open] > .news-version {
+        margin-top: 26px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border-soft);
+      }
+
+      .news-version + .news-version {
+        margin-top: 18px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border-soft);
+      }
+
+      .news-version-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 2px 10px;
+        margin-bottom: 8px;
+      }
+
+      .news-version-head h3 {
+        color: var(--purple-text);
+      }
+
+      .news-changes {
+        display: grid;
+        gap: 10px;
         margin: 0;
+        padding-left: 18px;
+      }
+
+      .news-changes li::marker {
+        color: var(--purple-text);
+      }
+
+      .news-changes p {
+        margin-top: 3px;
+        font-size: 13px;
+      }
+
+      .news-dialog {
+        width: min(560px, calc(100vw - 32px));
+        max-height: min(680px, calc(100dvh - 48px));
+        padding: 0;
+        border: 1px solid color-mix(in srgb, var(--purple) 40%, var(--border));
+        border-radius: 16px;
+        background: linear-gradient(180deg, var(--card-2), var(--card));
+        color: var(--text);
+        box-shadow: var(--shadow), 0 0 60px color-mix(in srgb, var(--purple) 14%, transparent);
+        overflow-wrap: anywhere;
+      }
+
+      .news-dialog[open] {
+        display: flex;
+        flex-direction: column;
+        animation: enter 0.22s ease-out;
+      }
+
+      .news-dialog::backdrop {
+        background: rgba(5, 5, 10, 0.62);
+        backdrop-filter: blur(3px);
+      }
+
+      .news-dialog-head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 20px 20px 14px;
+        border-bottom: 1px solid var(--border-soft);
+      }
+
+      .news-badge {
+        display: grid;
+        flex: none;
+        place-items: center;
+        width: 40px;
+        height: 40px;
+        border-radius: 11px;
+        background: color-mix(in srgb, var(--purple) 16%, transparent);
+        color: var(--purple-text);
+      }
+
+      .news-kicker {
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .news-dialog h2 {
+        font-size: 18px;
+        font-weight: 650;
+      }
+
+      .news-list {
+        flex: 1 1 auto;
+        min-height: 0;
+        padding: 16px 20px;
+        overflow-y: auto;
+      }
+
+      .news-actions {
+        display: flex;
+        justify-content: flex-end;
+        padding: 12px 20px calc(16px + env(safe-area-inset-bottom));
+        border-top: 1px solid var(--border-soft);
+      }
+
+      @media (max-width: 719px) {
+        .news-actions .button {
+          flex: 1;
+          min-height: 44px;
+        }
       }
 
       .banner {
@@ -2205,6 +2377,10 @@
                 </label>
               </article>
             </div>
+            <div class="settings-block">
+              <div class="view-title settings-sub"><h2>Novedades</h2><span id="news-meta" class="muted small"></span></div>
+              <div id="news" class="news-history"></div>
+            </div>
             <div class="settings-block" id="devices-section" hidden>
               <div class="view-title settings-sub"><h2>Celulares</h2><span id="devices-meta" class="muted small"></span></div>
               <div id="devices"></div>
@@ -2219,6 +2395,18 @@
     </div>
 
     <div id="toasts" class="toasts" aria-live="polite"></div>
+
+    <dialog id="news-dialog" class="news-dialog" aria-labelledby="news-title">
+      <div class="news-dialog-head">
+        <span class="news-badge"><span data-icon="sparkles" data-size="20"></span></span>
+        <div>
+          <p class="news-kicker">Se actualizó la app</p>
+          <h2 id="news-title">Novedades</h2>
+        </div>
+      </div>
+      <div id="news-list" class="news-list"></div>
+      <div id="news-actions" class="news-actions"></div>
+    </dialog>
 
     <script>
       // --- Conexión ---
@@ -2269,15 +2457,23 @@
       // versión de desarrollo y no busca nada.
       const RELEASES_API = 'https://api.github.com/repos/mmunozpatino/lp-media-center/releases/latest';
 
-      async function findUpdate() {
-        let current;
+      /** Un JSON que viaja dentro de la app, o null si no está. */
+      async function bundledJson(name) {
         try {
-          const response = await fetch('build-info.json', { cache: 'no-store' });
-          if (!response.ok) return null;
-          current = await response.json();
+          const response = await fetch(name, { cache: 'no-store' });
+          return response.ok ? await response.json() : null;
         } catch {
           return null;
         }
+      }
+
+      let buildInfo = null;
+      /** { version, commit } de esta app, o null si es de desarrollo. Se lee una sola vez. */
+      const loadBuildInfo = () => (buildInfo ??= bundledJson('build-info.json'));
+
+      async function findUpdate() {
+        const current = await loadBuildInfo();
+        if (!current?.version) return null;
         try {
           const response = await fetch(RELEASES_API, {
             headers: { Accept: 'application/vnd.github+json' },
@@ -2287,7 +2483,8 @@
           const release = await response.json();
           if (!isNewerVersion(release.tag_name, current.version)) return null;
           const asset = pickReleaseAsset(release.assets, isMobile);
-          return asset ? { version: release.tag_name.replace(/^v/, ''), url: asset.browser_download_url } : null;
+          if (!asset) return null;
+          return { version: release.tag_name.replace(/^v/, ''), url: asset.browser_download_url, notes: releaseTitles(release.body) };
         } catch {
           return null;
         }
@@ -2914,6 +3111,63 @@
         return (assets ?? []).find((asset) => String(asset.name).toLowerCase().endsWith(extension)) ?? null;
       }
 
+      /** changelog.json (lo arma scripts/changelog.mjs) limpio: versiones válidas, de la más nueva a la más vieja. */
+      function changelogVersions(data) {
+        const versions = Array.isArray(data?.versions) ? data.versions : [];
+        return versions
+          .filter((entry) => /^\d+\.\d+\.\d+$/.test(String(entry?.version)))
+          .map((entry) => ({
+            version: entry.version,
+            date: typeof entry.date === 'string' ? entry.date : null,
+            changes: (Array.isArray(entry.changes) ? entry.changes : [])
+              .filter((change) => typeof change?.title === 'string' && change.title.trim())
+              .map((change) => ({ title: change.title.trim(), body: typeof change.body === 'string' ? change.body.trim() : '' })),
+          }))
+          .sort((a, b) => (isNewerVersion(a.version, b.version) ? -1 : isNewerVersion(b.version, a.version) ? 1 : 0));
+      }
+
+      /**
+       * Qué versiones contar al abrir la app. Sin versión propia (desarrollo), ninguna. Sin versión vista, solo la
+       * actual: no se distingue una instalación nueva de una actualización desde una versión sin novedades, y una
+       * sola versión es corta. Si no, las posteriores a la última vista, hasta la propia. Las sin cambios no cuentan.
+       */
+      function newsToShow(versions, current, lastSeen) {
+        if (!current) return [];
+        if (lastSeen && !isNewerVersion(current, lastSeen)) return [];
+        return versions.filter(
+          (entry) =>
+            entry.changes.length &&
+            !isNewerVersion(entry.version, current) &&
+            (lastSeen ? isNewerVersion(entry.version, lastSeen) : entry.version === current),
+        );
+      }
+
+      /** Título del diálogo según cuántas versiones junta. */
+      function newsTitle(versions) {
+        if (versions.length === 1) return 'Novedades de la versión ' + versions[0].version;
+        return 'Novedades desde la versión ' + versions[versions.length - 1].version;
+      }
+
+      const changeCount = (count) => (count === 1 ? '1 cambio' : count + ' cambios');
+
+      /** "2026-11-07" -> "7 de nov de 2026", como el reloj. La fecha es del commit, sin hora: se lee en UTC para no correrla un día. */
+      function changelogDate(text) {
+        const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text ?? '');
+        if (!match) return null;
+        const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+        return date.toLocaleDateString('es-AR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
+      }
+
+      /** Los títulos de los cambios en el texto de una release de GitHub: las líneas que empiezan con "- ". */
+      function releaseTitles(body, max = 4) {
+        const titles = String(body ?? '')
+          .split(/\r?\n/)
+          .filter((line) => /^[-*] \S/.test(line))
+          .map((line) => line.slice(2).replace(/\*\*|__|`/g, '').trim())
+          .filter(Boolean);
+        return { titles: titles.slice(0, max), more: Math.max(0, titles.length - max) };
+      }
+
       // --- Fin de textos ---
 
       // --- Dibujo ---
@@ -2921,6 +3175,7 @@
 
       /** Iconos de Lucide (lucide-static, licencia ISC). Solo el interior de cada SVG. */
       const ICONS = {
+        "sparkles": "<path d=\"M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z\"/><path d=\"M20 2v4\"/><path d=\"M22 4h-4\"/><circle cx=\"4\" cy=\"20\" r=\"2\"/>",
         "house": "<path d=\"M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8\"/><path d=\"M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z\"/>",
         "server": "<rect width=\"20\" height=\"8\" x=\"2\" y=\"2\" rx=\"2\" ry=\"2\"/><rect width=\"20\" height=\"8\" x=\"2\" y=\"14\" rx=\"2\" ry=\"2\"/><line x1=\"6\" x2=\"6.01\" y1=\"6\" y2=\"6\"/><line x1=\"6\" x2=\"6.01\" y1=\"18\" y2=\"18\"/>",
         "download": "<path d=\"M12 15V3\"/><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><path d=\"m7 10 5 5 5-5\"/>",
@@ -4214,18 +4469,110 @@
           } catch {}
           $('update').hidden = true;
         });
+        const { titles, more } = update.notes;
+        const notes = titles.length
+          ? el('ul', 'update-notes', ...titles.map((title) => el('li', null, title)), more ? el('li', 'muted', 'Y ' + changeCount(more) + ' más') : null)
+          : null;
         $('update').replaceChildren(
-          el('p', null, el('strong', null, 'Hay una versión nueva: ' + update.version + '. '), how),
+          el('div', 'update-text', el('p', null, el('strong', null, 'Hay una versión nueva: ' + update.version + '. '), how), notes),
           actionButton('Descargar', () => openInBrowser(update.url), true),
           later,
         );
         $('update').hidden = false;
       }
 
+      // --- Novedades ---
+      // changelog.json viaja dentro de la app con los cambios de cada versión, para verlos sin internet. Al
+      // abrir una versión nueva, un diálogo cuenta qué cambió desde la última que se vio en este equipo.
+      const NEWS_SEEN_KEY = 'lp-media-center:novedades-vistas';
+
+      function newsVersion(entry, heading) {
+        const date = changelogDate(entry.date);
+        return el(
+          'section',
+          'news-version',
+          heading ? el('div', 'news-version-head', el(heading, null, 'Versión ' + entry.version), date ? el('span', 'muted small', date) : null) : null,
+          el(
+            'ul',
+            'news-changes',
+            ...entry.changes.map((change) =>
+              el('li', null, el('strong', null, change.title), ...(change.body ? change.body.split(/\n\n+/).map((text) => el('p', 'muted', text)) : [])),
+            ),
+          ),
+        );
+      }
+
+      function renderNewsSettings(info, versions) {
+        $('news-meta').textContent = info?.version ? 'Esta app: versión ' + info.version : 'Versión de desarrollo';
+        const shown = versions.filter((entry) => entry.changes.length);
+        if (!shown.length) {
+          const text = info?.version
+            ? 'Esta versión no trae la lista de novedades.'
+            : 'Las novedades vienen con cada versión publicada. Esta es de desarrollo.';
+          $('news').replaceChildren(el('article', 'card', el('p', 'muted', text)));
+          return;
+        }
+        $('news').replaceChildren(
+          ...shown.map((entry, index) => {
+            const facts = [changelogDate(entry.date), changeCount(entry.changes.length)].filter(Boolean).join(' · ');
+            const details = el(
+              'details',
+              'card news-item',
+              el('summary', null, el('span', 'news-item-name', 'Versión ' + entry.version), el('span', 'muted small', facts)),
+              newsVersion(entry, null),
+            );
+            details.open = index === 0;
+            return details;
+          }),
+        );
+      }
+
+      function showNewsDialog(versions, current) {
+        const dialog = $('news-dialog');
+        const done = actionButton('Listo', () => dialog.close(), true);
+        $('news-title').textContent = newsTitle(versions);
+        $('news-list').replaceChildren(...versions.map((entry) => newsVersion(entry, versions.length > 1 ? 'h3' : null)));
+        $('news-actions').replaceChildren(done);
+        // Se da por vista al cerrarlo de cualquier forma: con "Listo" o con Escape.
+        dialog.addEventListener(
+          'close',
+          () => {
+            try {
+              localStorage.setItem(NEWS_SEEN_KEY, current);
+            } catch {}
+          },
+          { once: true },
+        );
+        dialog.showModal();
+        done.focus();
+      }
+
+      async function setUpNews() {
+        const [info, data] = await Promise.all([loadBuildInfo(), bundledJson('changelog.json')]);
+        const versions = changelogVersions(data);
+        renderNewsSettings(info, versions);
+        if (!info?.version) return;
+        let lastSeen;
+        try {
+          lastSeen = localStorage.getItem(NEWS_SEEN_KEY);
+        } catch {
+          return; // Sin dónde guardar que se vio, mejor no mostrarlo en cada arranque.
+        }
+        const news = newsToShow(versions, info.version, lastSeen);
+        if (news.length) {
+          showNewsDialog(news, info.version);
+        } else if (!lastSeen || isNewerVersion(info.version, lastSeen)) {
+          try {
+            localStorage.setItem(NEWS_SEEN_KEY, info.version);
+          } catch {}
+        }
+      }
+
       setTimeout(checkForUpdate, 5000);
       setInterval(checkForUpdate, UPDATE_EVERY_MS);
       setUpChrome();
       setUpTheme();
+      setUpNews();
       if (isMobile) {
         startMobile();
       } else {
