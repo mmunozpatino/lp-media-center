@@ -1,7 +1,7 @@
 # Actualiza LP Media Center en esta PC: cierra la app y su backend, instala la versión de dist y la abre.
 # Correr desde el panel Terminal, no desde las herramientas de Claude (ver "AppData virtualizado" en CLAUDE.md).
 $exe = Join-Path $env:LOCALAPPDATA 'Programs\LP Media Center\LP Media Center.exe'
-$setup = Join-Path $PSScriptRoot '..\dist\LP Media Center Setup 0.1.0.exe'
+$setup = Join-Path $PSScriptRoot '..\dist\LP-Cine-Vault-Setup.exe'
 Get-Process 'LP Media Center' -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe } | Stop-Process -Force
 Start-Sleep -Seconds 2
 Start-Process -FilePath $setup -ArgumentList '/S' -Wait
