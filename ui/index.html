@@ -2117,7 +2117,8 @@
         /* Títulos largos y textos: de a uno por fila. Servicios y discos siguen de a dos. */
         #downloads > .stack,
         #requests > .stack,
-        #network > .stack {
+        #network > .stack,
+        #devices > .stack {
           grid-template-columns: minmax(0, 1fr);
         }
 
@@ -2193,7 +2194,26 @@
         }
 
         .room-head h2 {
-          letter-spacing: 0.18em;
+          letter-spacing: 0.14em;
+        }
+
+        /* En celulares angostos, "9 SERVICES MONITORED" no entraba y ensanchaba la página: se podía arrastrar de
+           costado y la barra de abajo quedaba cortada a la derecha. */
+        .room-head .rule {
+          display: none;
+        }
+
+        .room-head .count {
+          min-width: 0;
+          margin-left: auto;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
+        /* Por las dudas: nada puede ensanchar la página en el celu. clip no crea otro scroll, así la barra sigue fija. */
+        html,
+        body {
+          overflow-x: clip;
         }
 
         .tile {
