@@ -4891,22 +4891,56 @@
 
       // --- Celulares, solo en la app de Windows ---
       /** Código para el celular, para copiar o escanear. El QR lleva también la dirección de la PC. */
-      function pairCodeBlock(code, host) {
-        const copy = el('button', 'icon-button', icon('copy', 16));
-        copy.type = 'button';
-        copy.title = 'Copiar el código';
-        copy.setAttribute('aria-label', copy.title);
-        copy.addEventListener('click', () => copyText(copy, code, 'Código copiado'));
-        const { path, size } = qrSvgPath(qrMatrix(pairLink(code, host)));
+      /** QR negro sobre blanco, dibujado con el generador propio de la sección "QR". */
+      function qrImage(text, label) {
+        const { path, size } = qrSvgPath(qrMatrix(text));
         const qr = svgNode('svg', {
           class: 'pair-qr',
           viewBox: '0 0 ' + size + ' ' + size,
           role: 'img',
-          'aria-label': 'QR para emparejar un celular',
+          'aria-label': label,
           'shape-rendering': 'crispEdges',
         });
         qr.append(svgNode('path', { d: path, fill: '#000' }));
-        return el('div', 'pair-box', qr, el('div', 'pair-code-row', el('span', 'pair-code', code), copy));
+        return qr;
+      }
+
+      function copyButton(value, title, message) {
+        const copy = el('button', 'icon-button', icon('copy', 16));
+        copy.type = 'button';
+        copy.title = title;
+        copy.setAttribute('aria-label', title);
+        copy.addEventListener('click', () => copyText(copy, value, message));
+        return copy;
+      }
+
+      function pairCodeBlock(code, host) {
+        return el(
+          'div',
+          'pair-box',
+          qrImage(pairLink(code, host), 'QR para emparejar un celular'),
+          el('div', 'pair-code-row', el('span', 'pair-code', code), copyButton(code, 'Copiar el código', 'Código copiado')),
+        );
+      }
+
+      // Siempre la última versión publicada: GitHub redirige este enlace al APK de la release más nueva.
+      const APK_DOWNLOAD_URL = 'https://github.com/mmunozpatino/lp-media-center/releases/latest/download/LP-Cine-Vault.apk';
+
+      /** Para un celular que todavía no tiene la app: QR con la descarga del APK, y el enlace para copiarlo. */
+      function apkDownloadCard() {
+        return el(
+          'article',
+          'card',
+          el('h3', null, 'Bajar la app del celular'),
+          el('p', 'muted small', 'Si el celu o la tablet todavía no tiene ' + PRODUCT_NAME + ', escaneá el QR con la cámara para bajar la última versión. Al abrir el APK, Android pide permitir instalar apps desde el navegador.'),
+          el(
+            'div',
+            'pair-box',
+            qrImage(APK_DOWNLOAD_URL, 'QR para bajar la app del celular'),
+            el('div', 'pair-code-row', el('span', 'apk-link muted small', 'github.com/…/LP-Cine-Vault.apk'), copyButton(APK_DOWNLOAD_URL, 'Copiar el enlace', 'Enlace copiado')),
+          ),
+          el('div', 'row-actions', actionButton('Abrir en el navegador', () => openInBrowser(APK_DOWNLOAD_URL))),
+        );
       }
 
       async function setupRequest(path, body) {
@@ -4970,6 +5004,7 @@
               : el('p', 'muted small', 'Crea un código de un solo uso para escribir en el celular.'),
             el('div', 'row-actions', pair),
           ),
+          apkDownloadCard(),
         );
 
         for (const device of setup.devices) {
