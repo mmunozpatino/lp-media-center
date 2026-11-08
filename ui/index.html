@@ -460,6 +460,18 @@
         min-width: 0;
       }
 
+      .update-status:empty {
+        display: none;
+      }
+
+      .update-status {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin: 6px 0 0;
+      }
+
       .update-notes {
         margin: 6px 0 0;
         padding-left: 18px;
@@ -5056,10 +5068,43 @@
         return update;
       }
 
+      /** La app de Windows instalada sabe bajar e instalar sola la versión nueva (electron/updater.cjs). */
+      const canSelfUpdate = () => typeof window.lpDesktop?.installUpdate === 'function';
+
+      /**
+       * El botón de la versión nueva. En Windows instalada: "Actualizar ahora", que baja e instala sola y muestra el
+       * avance en `statusNode`. Si falla, ofrece bajarla a mano. En el resto: "Descargar", que abre el navegador.
+       */
+      function updateButton(update, statusNode) {
+        if (!canSelfUpdate()) return actionButton('Descargar', () => openInBrowser(update.url), true);
+        const button = actionButton('Actualizar ahora', async () => {
+          button.disabled = true;
+          button.textContent = 'Bajando…';
+          statusNode.replaceChildren();
+          try {
+            await window.lpDesktop.installUpdate(({ received, total }) => {
+              button.textContent = total ? `Bajando… ${Math.floor((received / total) * 100)}%` : 'Bajando…';
+            });
+            button.textContent = 'Instalando…';
+            statusNode.textContent = 'La app se cierra y vuelve a abrir sola en unos segundos.';
+          } catch (error) {
+            button.disabled = false;
+            button.textContent = 'Reintentar';
+            statusNode.replaceChildren(
+              el('span', null, (error.message || 'No se pudo actualizar.') + ' '),
+              actionButton('Bajarla a mano', () => openInBrowser(update.url)),
+            );
+          }
+        }, true);
+        return button;
+      }
+
       function showUpdateBanner(update) {
         const how = isMobile
           ? 'Se descarga el APK: abrilo para instalarlo encima, sin perder el emparejamiento.'
-          : 'Se descarga el instalador: al abrirlo, cierra la app, la actualiza y la vuelve a abrir.';
+          : canSelfUpdate()
+            ? 'Se baja y se instala sola: la app se cierra un momento y vuelve a abrir.'
+            : 'Se descarga el instalador: al abrirlo, cierra la app, la actualiza y la vuelve a abrir.';
         const later = actionButton('Más tarde', () => {
           try {
             localStorage.setItem(SKIPPED_UPDATE_KEY, update.version);
@@ -5070,9 +5115,10 @@
         const notes = titles.length
           ? el('ul', 'update-notes', ...titles.map((title) => el('li', null, title)), more ? el('li', 'muted', 'Y ' + changeCount(more) + ' más') : null)
           : null;
+        const status = el('p', 'update-status muted small');
         $('update').replaceChildren(
-          el('div', 'update-text', el('p', null, el('strong', null, 'Hay una versión nueva: ' + update.version + '. '), how), notes),
-          actionButton('Descargar', () => openInBrowser(update.url), true),
+          el('div', 'update-text', el('p', null, el('strong', null, 'Hay una versión nueva: ' + update.version + '. '), how), notes, status),
+          updateButton(update, status),
           later,
         );
         $('update').hidden = false;
@@ -5098,10 +5144,8 @@
           button.disabled = false;
           button.textContent = 'Buscar actualizaciones';
           if (update.state === 'available') {
-            result.replaceChildren(
-              el('span', null, 'Hay una versión nueva: ' + update.version + '. '),
-              actionButton('Descargar', () => openInBrowser(update.url), true),
-            );
+            const status = el('span', 'update-status');
+            result.replaceChildren(el('span', null, 'Hay una versión nueva: ' + update.version + '. '), updateButton(update, status), status);
           } else if (update.state === 'current') {
             result.textContent = 'Ya tenés la última versión.';
           } else {
