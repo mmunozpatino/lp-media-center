@@ -209,7 +209,8 @@ En los tests van IP y nombres de ejemplo. Los commits usan el mail privado de Gi
   la versión `v0.1.<número de corrida>` con los dos archivos.
 - **Versión de cada app:** `scripts/build-info.mjs` escribe `ui/build-info.json`, que no se commitea. Sin ese archivo, la app es
   de desarrollo y no busca actualizaciones.
-- **Aviso:** la app consulta `api.github.com` al abrir y cada 6 horas. Si hay una más nueva, ofrece descargarla: en Android el
+- **Aviso:** la app consulta `api.github.com` al abrir y cada 6 horas, y cuando se pide en Settings, "Versión", con "Buscar
+  actualizaciones" (ahí el aviso aparece aunque se haya tocado "Más tarde"). Si hay una más nueva, ofrece descargarla: en Android el
   APK, que se instala encima; en Windows el instalador, que cierra la app y su backend (`build/installer.nsh`) y la reinstala.
   El aviso lista los títulos de la release nueva. Hasta el 2026-11-07 la CSP no dejaba leer `build-info.json` en Windows
   (`app://` no entra en `http:`), así que la app de Windows nunca avisó; ahora `connect-src` incluye `'self'`.

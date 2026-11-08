@@ -697,6 +697,26 @@
         margin-bottom: 10px;
       }
 
+      .version-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .version-result {
+        margin: 10px 0 0;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .version-result:empty {
+        display: none;
+      }
+
       /* --- Botones --- */
       .button {
         display: inline-flex;
@@ -2406,7 +2426,17 @@
               </article>
             </div>
             <div class="settings-block">
-              <div class="view-title settings-sub"><h2>Novedades</h2><span id="news-meta" class="muted small"></span></div>
+              <div class="view-title settings-sub"><h2>Versión</h2></div>
+              <article class="card version-card">
+                <div class="version-row">
+                  <strong id="app-version"></strong>
+                  <button id="check-update" type="button" class="button">Buscar actualizaciones</button>
+                </div>
+                <p id="check-update-result" class="muted version-result" role="status"></p>
+              </article>
+            </div>
+            <div class="settings-block">
+              <div class="view-title settings-sub"><h2>Novedades</h2></div>
               <div id="news" class="news-history"></div>
             </div>
             <div class="settings-block" id="devices-section" hidden>
@@ -2499,22 +2529,33 @@
       /** { version, commit } de esta app, o null si es de desarrollo. Se lee una sola vez. */
       const loadBuildInfo = () => (buildInfo ??= bundledJson('build-info.json'));
 
+      /**
+       * Busca en GitHub. state: 'dev' (sin build-info.json), 'error' (no se pudo consultar), 'current' (está al
+       * día) o 'available', con version, url y notes.
+       */
       async function findUpdate() {
         const current = await loadBuildInfo();
-        if (!current?.version) return null;
+        if (!current?.version) return { state: 'dev' };
         try {
           const response = await fetch(RELEASES_API, {
             headers: { Accept: 'application/vnd.github+json' },
+            cache: 'no-store',
             signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
           });
-          if (!response.ok) return null;
+          if (!response.ok) return { state: 'error' };
           const release = await response.json();
-          if (!isNewerVersion(release.tag_name, current.version)) return null;
+          if (!isNewerVersion(release.tag_name, current.version)) return { state: 'current', version: current.version };
           const asset = pickReleaseAsset(release.assets, isMobile);
-          if (!asset) return null;
-          return { version: release.tag_name.replace(/^v/, ''), url: asset.browser_download_url, notes: releaseTitles(release.body) };
+          // Publicada sin el archivo de este equipo: para él, todavía no hay nada nuevo.
+          if (!asset) return { state: 'current', version: current.version };
+          return {
+            state: 'available',
+            version: release.tag_name.replace(/^v/, ''),
+            url: asset.browser_download_url,
+            notes: releaseTitles(release.body),
+          };
         } catch {
-          return null;
+          return { state: 'error' };
         }
       }
 
@@ -4863,16 +4904,23 @@
       const UPDATE_EVERY_MS = 6 * 60 * 60 * 1000;
       const SKIPPED_UPDATE_KEY = 'lp-media-center:actualizacion-omitida';
 
-      async function checkForUpdate() {
+      /** manual: la pidió la usuaria desde Settings, así que muestra el aviso aunque haya tocado "Más tarde". */
+      async function checkForUpdate({ manual = false } = {}) {
         const update = await findUpdate();
         let skipped = null;
         try {
           skipped = localStorage.getItem(SKIPPED_UPDATE_KEY);
         } catch {}
-        if (!update || update.version === skipped) {
-          $('update').hidden = true;
-          return;
+        if (update.state !== 'available' || (!manual && update.version === skipped)) {
+          // Un error de red no esconde un aviso que ya estaba a la vista.
+          if (update.state !== 'error') $('update').hidden = true;
+          return update;
         }
+        showUpdateBanner(update);
+        return update;
+      }
+
+      function showUpdateBanner(update) {
         const how = isMobile
           ? 'Se descarga el APK: abrilo para instalarlo encima, sin perder el emparejamiento.'
           : 'Se descarga el instalador: al abrirlo, cierra la app, la actualiza y la vuelve a abrir.';
@@ -4892,6 +4940,38 @@
           later,
         );
         $('update').hidden = false;
+      }
+
+      /** Settings, "Versión": la de esta app y el botón para buscar una más nueva. */
+      async function setUpVersionSettings() {
+        const info = await loadBuildInfo();
+        const button = $('check-update');
+        const result = $('check-update-result');
+        if (!info?.version) {
+          $('app-version').textContent = 'Versión de desarrollo';
+          result.textContent = 'Las versiones de desarrollo no buscan actualizaciones.';
+          button.hidden = true;
+          return;
+        }
+        $('app-version').textContent = 'Versión ' + info.version;
+        button.addEventListener('click', async () => {
+          button.disabled = true;
+          button.textContent = 'Buscando…';
+          result.replaceChildren();
+          const update = await checkForUpdate({ manual: true });
+          button.disabled = false;
+          button.textContent = 'Buscar actualizaciones';
+          if (update.state === 'available') {
+            result.replaceChildren(
+              el('span', null, 'Hay una versión nueva: ' + update.version + '. '),
+              actionButton('Descargar', () => openInBrowser(update.url), true),
+            );
+          } else if (update.state === 'current') {
+            result.textContent = 'Ya tenés la última versión.';
+          } else {
+            result.textContent = 'No se pudo consultar GitHub. Revisá la conexión a internet y probá de nuevo.';
+          }
+        });
       }
 
       // --- Novedades ---
@@ -4916,7 +4996,6 @@
       }
 
       function renderNewsSettings(info, versions) {
-        $('news-meta').textContent = info?.version ? 'Esta app: versión ' + info.version : 'Versión de desarrollo';
         const shown = versions.filter((entry) => entry.changes.length);
         if (!shown.length) {
           const text = info?.version
@@ -4986,6 +5065,7 @@
       setUpChrome();
       setUpTheme();
       setUpNews();
+      setUpVersionSettings();
       if (isMobile) {
         startMobile();
       } else {
