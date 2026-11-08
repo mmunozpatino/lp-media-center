@@ -6,5 +6,10 @@
     "androidScheme": "http",
     "hostname": "localhost",
     "cleartext": true
+  },
+  "plugins": {
+    "SystemBars": {
+      "style": "DARK"
+    }
   }
 }

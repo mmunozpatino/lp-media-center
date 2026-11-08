@@ -4495,13 +4495,25 @@
       const ACTION_RESULT_MS = 60000;
       const BULK_CONCURRENCY = 3;
 
+      /**
+       * Android: los íconos de la barra de estado y de navegación siguen el tema de la app, no el del dispositivo.
+       * Con el celu en modo claro, Capacitor los ponía negros sobre el fondo oscuro de la app y no se veían.
+       * Usa el plugin SystemBars que trae Capacitor; "DARK" es para fondos oscuros, con íconos claros.
+       */
+      function syncSystemBars(theme) {
+        if (!window.Capacitor?.nativePromise) return;
+        window.Capacitor.nativePromise('SystemBars', 'setStyle', { style: theme === 'light' ? 'LIGHT' : 'DARK' }).catch(() => {});
+      }
+
       function setUpTheme() {
         const key = 'lp-media-center:tema';
         $('theme').value = document.documentElement.dataset.theme === 'light' ? 'light' : 'dark';
+        syncSystemBars($('theme').value);
         $('theme').addEventListener('change', () => {
           const value = $('theme').value;
           if (value === 'light') document.documentElement.dataset.theme = value;
           else delete document.documentElement.dataset.theme;
+          syncSystemBars(value);
           try {
             localStorage.setItem(key, value);
           } catch {}
