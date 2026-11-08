@@ -236,6 +236,11 @@
         box-shadow: 0 0 10px color-mix(in srgb, var(--purple) 80%, transparent);
       }
 
+      .nav-more,
+      .more-menu {
+        display: none;
+      }
+
       .side-art {
         margin-top: auto;
         padding-top: 16px;
@@ -1982,15 +1987,18 @@
           --gap: 8px;
         }
 
+        /* Barra de abajo flotante: 4 secciones y "Más", con lugar para el dedo. */
         .sidebar {
-          inset: auto 0 0 0;
+          inset: auto 10px calc(10px + env(safe-area-inset-bottom)) 10px;
           flex-direction: row;
-          width: 100%;
-          padding: 0 2px env(safe-area-inset-bottom);
-          border-top: 1px solid var(--border);
-          border-right: 0;
-          background: var(--sidebar);
-          box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.3);
+          width: auto;
+          padding: 6px;
+          border: 1px solid var(--border);
+          border-radius: 22px;
+          background: color-mix(in srgb, var(--sidebar) 92%, transparent);
+          -webkit-backdrop-filter: blur(14px);
+          backdrop-filter: blur(14px);
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
           overflow: visible;
           transform: none;
           transition: none;
@@ -2004,41 +2012,119 @@
         }
 
         .nav {
-          grid-template-columns: repeat(7, minmax(0, 1fr));
-          gap: 0;
+          grid-template-columns: repeat(5, minmax(0, 1fr));
+          gap: 4px;
           width: 100%;
           margin: 0;
         }
 
-        .nav-item {
+        .nav > .nav-item.secondary {
+          display: none;
+        }
+
+        .nav-item,
+        .nav-more {
+          position: relative;
+          display: flex;
           flex-direction: column;
+          align-items: center;
           justify-content: center;
-          gap: 3px;
-          min-height: 56px;
-          padding: 4px 0;
-          border-radius: 8px;
-          font-size: 9.5px;
+          gap: 5px;
+          min-height: 60px;
+          padding: 6px 0;
+          border: 0;
+          border-radius: 16px;
+          background: none;
+          color: var(--text-2);
+          font: inherit;
+          font-size: 11.5px;
           text-align: center;
           white-space: nowrap;
+          cursor: pointer;
         }
 
-        .nav-item svg {
-          width: 19px;
-          height: 19px;
+        .nav-item svg,
+        .nav-more svg {
+          width: 23px;
+          height: 23px;
+          color: var(--muted);
         }
 
-        .nav-item[aria-current='page'] {
-          background: color-mix(in srgb, var(--purple) 16%, transparent);
+        .nav-item[aria-current='page'],
+        .nav-more[aria-current='page'],
+        .nav-more[aria-expanded='true'] {
+          background: color-mix(in srgb, var(--purple) 20%, transparent);
+          color: var(--text);
+          font-weight: 600;
+        }
+
+        .nav-item[aria-current='page'] svg,
+        .nav-more[aria-current='page'] svg,
+        .nav-more[aria-expanded='true'] svg {
+          color: var(--purple-text);
         }
 
         .nav-item[aria-current='page']::before {
-          inset: 0 16px auto 16px;
-          width: auto;
-          height: 2px;
+          display: none;
+        }
+
+        .more-menu:not([hidden]) {
+          position: absolute;
+          right: 6px;
+          bottom: calc(100% + 8px);
+          display: grid;
+          gap: 2px;
+          min-width: 200px;
+          padding: 6px;
+          border: 1px solid var(--border);
+          border-radius: 18px;
+          background: var(--sidebar);
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+        }
+
+        .more-menu .nav-item {
+          flex-direction: row;
+          justify-content: flex-start;
+          gap: 12px;
+          min-height: 50px;
+          padding: 0 14px;
+          border-radius: 12px;
+          font-size: 15px;
+        }
+
+        .more-menu .nav-item svg {
+          width: 20px;
+          height: 20px;
         }
 
         .main {
-          padding-bottom: calc(76px + env(safe-area-inset-bottom));
+          padding-bottom: calc(100px + env(safe-area-inset-bottom));
+        }
+
+        /* Fuera de Overview, el estado general queda en una línea. */
+        body:not([data-view='overview']) .top-title {
+          padding: 7px 12px;
+        }
+
+        body:not([data-view='overview']) #summary {
+          display: none;
+        }
+
+        body:not([data-view='overview']) h1 {
+          font-size: 14.5px;
+        }
+
+        /* Títulos largos y textos: de a uno por fila. Servicios y discos siguen de a dos. */
+        #downloads > .stack,
+        #requests > .stack,
+        #network > .stack {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        /* Servicios: lo que importa en el celu es el estado y el botón. */
+        #parts .part-purpose,
+        #parts .part-spark {
+          display: none;
         }
 
         .hero-art {
@@ -2171,7 +2257,7 @@
         }
 
         .toasts {
-          bottom: calc(68px + env(safe-area-inset-bottom));
+          bottom: calc(96px + env(safe-area-inset-bottom));
         }
       }
 
@@ -2303,10 +2389,17 @@
         <button type="button" class="nav-item" data-view="services"><span data-icon="server"></span>Services</button>
         <button type="button" class="nav-item" data-view="downloads"><span data-icon="download"></span>Downloads</button>
         <button type="button" class="nav-item" data-view="requests"><span data-icon="clapperboard"></span>Requests</button>
+        <button type="button" class="nav-item secondary" data-view="storage"><span data-icon="database"></span>Storage</button>
+        <button type="button" class="nav-item secondary" data-view="network"><span data-icon="wifi"></span>Network</button>
+        <button type="button" class="nav-item secondary" data-view="settings"><span data-icon="settings"></span>Settings</button>
+        <!-- Solo en celular: la barra de abajo muestra 4 secciones y "Más" abre las otras. -->
+        <button type="button" id="nav-more" class="nav-more" aria-haspopup="true" aria-expanded="false" aria-controls="more-menu"><span data-icon="ellipsis"></span>Más</button>
+      </nav>
+      <div id="more-menu" class="more-menu" hidden>
         <button type="button" class="nav-item" data-view="storage"><span data-icon="database"></span>Storage</button>
         <button type="button" class="nav-item" data-view="network"><span data-icon="wifi"></span>Network</button>
         <button type="button" class="nav-item" data-view="settings"><span data-icon="settings"></span>Settings</button>
-      </nav>
+      </div>
       <div class="side-art">
         <svg viewBox="0 0 130 104" aria-hidden="true"><use href="#art-clapper" /></svg>
         <p>YOUR MEDIA<br />EMPIRE</p>
@@ -3543,6 +3636,7 @@
         "list": "<path d=\"M3 5h.01\"/><path d=\"M3 12h.01\"/><path d=\"M3 19h.01\"/><path d=\"M8 5h13\"/><path d=\"M8 12h13\"/><path d=\"M8 19h13\"/>",
         "hard-drive": "<path d=\"M10 16h.01\"/><path d=\"M2.212 11.577a2 2 0 0 0-.212.896V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5.527a2 2 0 0 0-.212-.896L18.55 5.11A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z\"/><path d=\"M21.946 12.013H2.054\"/><path d=\"M6 16h.01\"/>",
         "menu": "<path d=\"M4 5h16\"/><path d=\"M4 12h16\"/><path d=\"M4 19h16\"/>",
+        "ellipsis": "<circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/>",
       };
 
       /** Logos de cada programa, de walkxcode/dashboard-icons, como data URI. */
@@ -3957,7 +4051,7 @@
             el('div', 'part-title', partLogo(part), el('div', null, el('h3', null, part.name), stateBadge(part))),
             openServiceButton(part),
           ),
-          PART_PURPOSE[part.id] ? el('p', 'muted small', PART_PURPOSE[part.id]) : null,
+          PART_PURPOSE[part.id] ? el('p', 'muted small part-purpose', PART_PURPOSE[part.id]) : null,
           el('p', 'muted small', uptime === NO_DATA ? `Uptime: ${NO_DATA} (${part.state === 'down' ? 'no está corriendo' : 'sin dato de inicio'})` : `Uptime: ${uptime}`),
           part.version ? el('p', 'muted small', `Versión ${part.version}`) : null,
           stateNote ? el('p', 'muted small', stateNote) : null,
@@ -4244,14 +4338,26 @@
       }
 
       // --- Navegación ---
+      const MORE_VIEWS = ['storage', 'network', 'settings'];
+
       function showView(name) {
         for (const view of document.querySelectorAll('.view')) view.hidden = view.id !== `view-${name}`;
         for (const item of document.querySelectorAll('.nav-item')) {
           if (item.dataset.view === name) item.setAttribute('aria-current', 'page');
           else item.removeAttribute('aria-current');
         }
+        if (MORE_VIEWS.includes(name)) $('nav-more').setAttribute('aria-current', 'page');
+        else $('nav-more').removeAttribute('aria-current');
+        document.body.dataset.view = name;
         setDrawer(false);
+        setMoreMenu(false);
         window.scrollTo(0, 0);
+      }
+
+      /** Celular: el menú "Más" de la barra de abajo. */
+      function setMoreMenu(open) {
+        $('more-menu').hidden = !open;
+        $('nav-more').setAttribute('aria-expanded', String(open));
       }
 
       /** Desde una fila de Overview: lleva a su tarjeta en Services y la marca. */
@@ -4279,8 +4385,18 @@
         for (const item of document.querySelectorAll('.nav-item')) item.addEventListener('click', () => showView(item.dataset.view));
         $('menu-toggle').addEventListener('click', () => setDrawer(!document.body.classList.contains('nav-open')));
         $('scrim').addEventListener('click', () => setDrawer(false));
+        $('nav-more').addEventListener('click', (event) => {
+          event.stopPropagation();
+          setMoreMenu($('more-menu').hidden);
+        });
+        document.addEventListener('click', (event) => {
+          if (!$('more-menu').hidden && !$('more-menu').contains(event.target)) setMoreMenu(false);
+        });
         document.addEventListener('keydown', (event) => {
-          if (event.key === 'Escape') setDrawer(false);
+          if (event.key === 'Escape') {
+            setDrawer(false);
+            setMoreMenu(false);
+          }
         });
         showView('overview');
         renderMetrics(null);

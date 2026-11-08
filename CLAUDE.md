@@ -125,7 +125,7 @@ reanudar no arranque lo frenado a mano. Requiere activar en qBittorrent "Omitir 
 el botón explica qué activar.
 
 **Pantalla:** diseño CineVault (dark cinematic) con barra lateral y vistas Overview, Services, Downloads, Requests, Storage,
-Network y Settings. En celular, servicios de a dos por fila, como pidió la usuaria. Tema oscuro por defecto, o claro.
+Network y Settings. En celular, servicios de a dos por fila, como pidió la usuaria, sin descripción ni gráfica; descargas, pedidos y red de a uno. La barra de abajo flota y muestra Overview, Services, Downloads, Requests y "Más", que abre Storage, Network y Settings. Fuera de Overview, el estado general queda en una línea. Tema oscuro por defecto, o claro.
 
 **Pedidos fuera de Seerr:** el bot de Telegram agrega directo a Radarr o Sonarr. Por eso `requests` suma lo que Radarr
 (`/wanted/missing`) y Sonarr (`/series`) tienen monitoreado, sin archivo y fuera de la cola, con estado `notGrabbed` o
