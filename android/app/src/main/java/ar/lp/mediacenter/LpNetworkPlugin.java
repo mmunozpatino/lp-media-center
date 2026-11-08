@@ -8,6 +8,10 @@ import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
+import android.os.Build;
+import android.provider.Settings;
+
+import androidx.core.content.FileProvider;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -19,8 +23,12 @@ import com.google.mlkit.vision.barcode.common.Barcode;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 
+import java.io.File;
+import java.io.IOException;
 import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Lo que el JavaScript no puede hacer solo: ver la IP del Wi-Fi, abrir una web en el navegador, leer un QR y
@@ -33,6 +41,9 @@ public class LpNetworkPlugin extends Plugin {
 
     /** Enlace del QR que todavía no leyó la interfaz. */
     private String pendingPairLink = null;
+
+    private final ExecutorService updates = Executors.newSingleThreadExecutor();
+    private volatile boolean updating = false;
 
     @Override
     public void load() {
@@ -95,6 +106,86 @@ public class LpNetworkPlugin extends Plugin {
                     android.util.Log.w("LpNetwork", "Lector de QR, error " + code, error);
                     call.reject("No se pudo abrir el lector de QR. Revisá que Google Play Services esté actualizado.");
                 });
+    }
+
+    /**
+     * "Actualizar ahora": baja el APK de la última versión, lo comprueba (AppUpdater) y abre el cartel de instalación
+     * de Android, que siempre pide confirmar. Responde varias veces: { state: "progress", received, total } mientras
+     * baja y { state: "installing", version } al abrir el cartel. Si Android todavía no deja que esta app instale,
+     * abre ese ajuste y responde { state: "permission" }.
+     */
+    @PluginMethod(returnType = PluginMethod.RETURN_CALLBACK)
+    public void installUpdate(PluginCall call) {
+        Context context = getContext();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.getPackageManager().canRequestPackageInstalls()) {
+            Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + context.getPackageName()));
+            settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            context.startActivity(settings);
+            JSObject result = new JSObject();
+            result.put("state", "permission");
+            call.resolve(result);
+            return;
+        }
+        String current = currentVersion();
+        if (current == null) {
+            call.reject("Esta es una versión de desarrollo: no se actualiza sola.");
+            return;
+        }
+        if (updating) {
+            call.reject("Ya se está actualizando.");
+            return;
+        }
+        updating = true;
+        call.setKeepAlive(true);
+        updates.execute(() -> {
+            try {
+                AppUpdater.Release release = AppUpdater.latest();
+                if (!AppUpdater.isNewer(release.version, current)) throw new IOException("Ya tenés la última versión.");
+                File dir = new File(context.getCacheDir(), "actualizacion");
+                File[] old = dir.listFiles();
+                if (old != null) for (File file : old) file.delete();
+                if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("No se pudo guardar el APK.");
+                File apk = new File(dir, "LP-Cine-Vault-" + release.version + ".apk");
+                final int[] lastPercent = { -1 };
+                AppUpdater.download(release, apk, (received, total) -> {
+                    int percent = (int) (received * 100 / total);
+                    if (percent == lastPercent[0]) return;
+                    lastPercent[0] = percent;
+                    JSObject progress = new JSObject();
+                    progress.put("state", "progress");
+                    progress.put("received", received);
+                    progress.put("total", total);
+                    call.resolve(progress);
+                });
+                Uri uri = FileProvider.getUriForFile(context, context.getPackageName() + ".fileprovider", apk);
+                Intent install = new Intent(Intent.ACTION_VIEW);
+                install.setDataAndType(uri, "application/vnd.android.package-archive");
+                install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                context.startActivity(install);
+                JSObject result = new JSObject();
+                result.put("state", "installing");
+                result.put("version", release.version);
+                call.setKeepAlive(false);
+                call.resolve(result);
+            } catch (Exception e) {
+                android.util.Log.w("LpNetwork", "Actualización", e);
+                call.setKeepAlive(false);
+                String message = e instanceof IOException && e.getMessage() != null ? e.getMessage() : "No se pudo actualizar. Revisá la conexión a internet.";
+                call.reject(message);
+            } finally {
+                updating = false;
+            }
+        });
+    }
+
+    /** La versión instalada, la que pone el workflow. Null si es de desarrollo. */
+    private String currentVersion() {
+        try {
+            String name = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0).versionName;
+            return name == null || name.contains("dev") ? null : name;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** Devuelve la IP privada del Wi-Fi o Ethernet. Ignora VPN como Tailscale y los datos móviles. */

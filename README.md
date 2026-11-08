@@ -36,7 +36,7 @@ trabó hay que abrir cinco pestañas.
 - 🌐 **Red:** IP local, IP de Tailscale y velocidad de bajada y subida.
 - ⏯️ **Prender y frenar** cada programa, o todos juntos. Frenar pide confirmación, y la app comprueba que de verdad quedó hecho.
 - 🔗 **Acceso directo** a la web de cada programa y a Seerr.
-- 🔄 **Se actualiza sola:** avisa cuando hay una versión nueva y muestra qué cambió. En Windows, con "Actualizar ahora" la baja, comprueba que sea la publicada y se reinstala sola; en Android se instala encima.
+- 🔄 **Se actualiza sola:** avisa cuando hay una versión nueva y muestra qué cambió. En Windows, con "Actualizar ahora" la baja, comprueba que sea la publicada y se reinstala sola; en Android la baja, la comprueba y Android pide confirmar con un toque.
 
 <div align="center">
 <img src="docs/capturas/escritorio-services.png" alt="Vista de servicios con versión, uptime y botón para frenar cada uno" width="900">

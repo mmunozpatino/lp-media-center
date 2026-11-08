@@ -211,7 +211,10 @@ En los tests van IP y nombres de ejemplo. Los commits usan el mail privado de Gi
   de desarrollo y no busca actualizaciones.
 - **Aviso:** la app consulta `api.github.com` al abrir y cada 6 horas, y cuando se pide en Settings, "Versión", con "Buscar
   actualizaciones" (ahí el aviso aparece aunque se haya tocado "Más tarde"). Si hay una más nueva, ofrece descargarla: en Android el
-  APK, que se instala encima; en Windows, "Actualizar ahora" (`electron/updater.cjs`, por `electron/preload.cjs`) baja el instalador de la API de GitHub,
+  APK con "Actualizar ahora" (`AppUpdater.java` y `installUpdate` de `LpNetworkPlugin`): misma validación que en Windows, baja a la
+  caché y abre el cartel de Android con el FileProvider, que siempre pide confirmar. La primera vez abre el ajuste "instalar apps
+  desconocidas" (`REQUEST_INSTALL_PACKAGES`). Probado el 2026-11-08 en el emulador, de un 0.1.7 local a la 0.1.8 publicada; Play
+  Protect pidió escanearla la primera vez. En Windows, "Actualizar ahora" (`electron/updater.cjs`, por `electron/preload.cjs`) baja el instalador de la API de GitHub,
   comprueba tamaño y SHA-256 (`digest` del asset) y lo corre con `--updated /S --force-run`: cierra la app y su backend
   (`build/installer.nsh`), instala en silencio y la vuelve a abrir. Qué bajar lo decide el proceso principal, nunca la interfaz.
   Probado el 2026-11-08 de punta a punta, de un 0.1.5 local a la 0.1.6 publicada. Si falla, ofrece bajarla a mano.

@@ -5080,8 +5080,29 @@
         return update;
       }
 
-      /** La app de Windows instalada sabe bajar e instalar sola la versión nueva (electron/updater.cjs). */
-      const canSelfUpdate = () => typeof window.lpDesktop?.installUpdate === 'function';
+      // Las apps saben bajar e instalar solas la versión nueva: Windows con electron/updater.cjs, en silencio, y
+      // Android con AppUpdater.java, que abre el cartel de instalación de Android (siempre pide confirmar).
+      const canDesktopUpdate = () => typeof window.lpDesktop?.installUpdate === 'function';
+      const canAndroidUpdate = () => isMobile && typeof window.Capacitor?.nativeCallback === 'function';
+      const canSelfUpdate = () => canDesktopUpdate() || canAndroidUpdate();
+
+      /** Android: el plugin responde varias veces, con el avance y al final con "installing" o "permission". */
+      function androidInstallUpdate(onProgress) {
+        return new Promise((resolve, reject) => {
+          window.Capacitor.nativeCallback('LpNetwork', 'installUpdate', {}, (result, error) => {
+            if (error) reject(new Error(error.message || 'No se pudo actualizar.'));
+            else if (result?.state === 'progress') onProgress(result);
+            else resolve(result ?? {});
+          });
+        });
+      }
+
+      /** { state: 'installing' } cuando arrancó la instalación, o { state: 'permission' } si Android pide permiso antes. */
+      async function selfUpdate(onProgress) {
+        if (!canDesktopUpdate()) return androidInstallUpdate(onProgress);
+        await window.lpDesktop.installUpdate(onProgress);
+        return { state: 'installing' };
+      }
 
       /**
        * El botón de la versión nueva. En Windows instalada: "Actualizar ahora", que baja e instala sola y muestra el
@@ -5094,11 +5115,23 @@
           button.textContent = 'Bajando…';
           statusNode.replaceChildren();
           try {
-            await window.lpDesktop.installUpdate(({ received, total }) => {
+            const result = await selfUpdate(({ received, total }) => {
               button.textContent = total ? `Bajando… ${Math.floor((received / total) * 100)}%` : 'Bajando…';
             });
-            button.textContent = 'Instalando…';
-            statusNode.textContent = 'La app se cierra y vuelve a abrir sola en unos segundos.';
+            if (result.state === 'permission') {
+              button.disabled = false;
+              button.textContent = 'Actualizar ahora';
+              statusNode.textContent =
+                'Android pide permiso una sola vez: en el ajuste que se abrió, activá "Permitir de esta fuente", volvé y tocá "Actualizar ahora" otra vez.';
+            } else if (canDesktopUpdate()) {
+              button.textContent = 'Instalando…';
+              statusNode.textContent = 'La app se cierra y vuelve a abrir sola en unos segundos.';
+            } else {
+              // Si se cancela el cartel de Android, se puede volver a tocar.
+              button.disabled = false;
+              button.textContent = 'Actualizar ahora';
+              statusNode.textContent = 'Confirmá "Actualizar" en el cartel de Android. Cuando termine, abrí la app de nuevo.';
+            }
           } catch (error) {
             button.disabled = false;
             button.textContent = 'Reintentar';
@@ -5113,7 +5146,9 @@
 
       function showUpdateBanner(update) {
         const how = isMobile
-          ? 'Se descarga el APK: abrilo para instalarlo encima, sin perder el emparejamiento.'
+          ? canSelfUpdate()
+            ? 'Se baja sola y Android te pide confirmar la instalación, sin perder el emparejamiento.'
+            : 'Se descarga el APK: abrilo para instalarlo encima, sin perder el emparejamiento.'
           : canSelfUpdate()
             ? 'Se baja y se instala sola: la app se cierra un momento y vuelve a abrir.'
             : 'Se descarga el instalador: al abrirlo, cierra la app, la actualiza y la vuelve a abrir.';
