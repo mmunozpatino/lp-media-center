@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Ícono de las apps: el carrete del logo de la interfaz (#art-reel en ui/index.html) sobre fondo oscuro.
+       Lo usa scripts/iconos.cjs para generar el de Windows y los de Android. -->
+  <defs>
+    <linearGradient id="reel-gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f1d58e" />
+      <stop offset="0.55" stop-color="#d6ad55" />
+      <stop offset="1" stop-color="#9a7428" />
+    </linearGradient>
+    <linearGradient id="reel-violet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c29bff" />
+      <stop offset="1" stop-color="#7a3df0" />
+    </linearGradient>
+  </defs>
+  <g id="carrete">
+    <circle cx="29" cy="29" r="24" fill="none" stroke="url(#reel-gold)" stroke-width="5" />
+    <g fill="none" stroke="url(#reel-gold)" stroke-width="3.2">
+      <circle cx="29" cy="15.5" r="5.4" />
+      <circle cx="41.8" cy="24.8" r="5.4" />
+      <circle cx="36.9" cy="39.9" r="5.4" />
+      <circle cx="21.1" cy="39.9" r="5.4" />
+      <circle cx="16.2" cy="24.8" r="5.4" />
+    </g>
+    <circle cx="29" cy="29" r="3.6" fill="url(#reel-violet)" />
+    <path d="M44 49c4 5 9 7 16 6" fill="none" stroke="url(#reel-violet)" stroke-width="4.4" stroke-linecap="round" />
+  </g>
+</svg>

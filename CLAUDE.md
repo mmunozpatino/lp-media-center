@@ -47,7 +47,8 @@ en ejecución. Electron y Capacitor son la base de cada app; electron-builder y 
   vivo al cerrar la ventana; si el puerto está ocupado, termina solo.
 - `backend/package.json`: solo marca el módulo ESM. El backend va desempaquetado en `app.asar.unpacked`, donde no se ve el
   `package.json` de la raíz.
-- El instalador es NSIS, por usuario y sin administrador. No lleva firma ni ícono propio.
+- El instalador es NSIS, por usuario y sin administrador. No lleva firma. Ícono: el carrete del logo (`build/icono.svg`);
+  `npx electron scripts/iconos.cjs` genera `build/icon.png` (Windows) y los `mipmap-*` de Android, que quedan commiteados.
 - `GET /api/status` devuelve `generatedAt`, `network` (`lanIp`, `tailscaleIp`), `parts`, `downloads`, `requests`
   y `disks`. Cada parte tiene `state`: `ok`, `warning`, `down` (no responde) o `error` (responde, pero no se pudo
   leer), y `control`, que es `null` si no se puede frenar ni levantar.
