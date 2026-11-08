@@ -5170,6 +5170,10 @@
       // changelog.json viaja dentro de la app con los cambios de cada versión, para verlos sin internet. Al
       // abrir una versión nueva, un diálogo cuenta qué cambió desde la última que se vio en este equipo.
       const NEWS_SEEN_KEY = 'lp-media-center:novedades-vistas';
+      // En la app solo se ven las novedades de la versión actual; el historial completo está en GitHub.
+      const RELEASES_PAGE = 'https://github.com/mmunozpatino/lp-media-center/releases';
+
+      const allVersionsButton = () => actionButton('Ver versiones anteriores en GitHub', () => openInBrowser(RELEASES_PAGE));
 
       function newsVersion(entry, heading) {
         const date = changelogDate(entry.date);
@@ -5187,27 +5191,18 @@
         );
       }
 
+      /** Settings, "Novedades": lo que trajo la versión instalada, y un enlace a GitHub para las anteriores. */
       function renderNewsSettings(info, versions) {
-        const shown = versions.filter((entry) => entry.changes.length);
-        if (!shown.length) {
+        const entry = versions.find((item) => item.version === info?.version) ?? null;
+        if (!entry?.changes.length) {
           const text = info?.version
             ? 'Esta versión no trae la lista de novedades.'
             : 'Las novedades vienen con cada versión publicada. Esta es de desarrollo.';
-          $('news').replaceChildren(el('article', 'card', el('p', 'muted', text)));
+          $('news').replaceChildren(el('article', 'card', el('p', 'muted', text), el('div', 'row-actions', allVersionsButton())));
           return;
         }
         $('news').replaceChildren(
-          ...shown.map((entry, index) => {
-            const facts = [changelogDate(entry.date), changeCount(entry.changes.length)].filter(Boolean).join(' · ');
-            const details = el(
-              'details',
-              'card news-item',
-              el('summary', null, el('span', 'news-item-name', 'Versión ' + entry.version), el('span', 'muted small', facts)),
-              newsVersion(entry, null),
-            );
-            details.open = index === 0;
-            return details;
-          }),
+          el('article', 'card news-item', newsVersion(entry, 'h3'), el('div', 'row-actions', allVersionsButton())),
         );
       }
 
@@ -5216,7 +5211,7 @@
         const done = actionButton('Listo', () => dialog.close(), true);
         $('news-title').textContent = newsTitle(versions);
         $('news-list').replaceChildren(...versions.map((entry) => newsVersion(entry, versions.length > 1 ? 'h3' : null)));
-        $('news-actions').replaceChildren(done);
+        $('news-actions').replaceChildren(allVersionsButton(), done);
         // Se da por vista al cerrarlo de cualquier forma: con "Listo" o con Escape.
         dialog.addEventListener(
           'close',
@@ -5242,7 +5237,8 @@
         } catch {
           return; // Sin dónde guardar que se vio, mejor no mostrarlo en cada arranque.
         }
-        const news = newsToShow(versions, info.version, lastSeen);
+        // Solo la versión instalada, aunque se haya salteado alguna: las anteriores están en GitHub.
+        const news = newsToShow(versions, info.version, lastSeen).filter((entry) => entry.version === info.version);
         if (news.length) {
           showNewsDialog(news, info.version);
         } else if (!lastSeen || isNewerVersion(info.version, lastSeen)) {

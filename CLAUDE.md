@@ -226,7 +226,7 @@ En los tests van IP y nombres de ejemplo. Los commits usan el mail privado de Gi
 - **Diálogo de novedades:** al abrir, si la versión de `build-info.json` es más nueva que la guardada en `localStorage`
   (`lp-media-center:novedades-vistas`), muestra los cambios de las versiones posteriores a esa, y la guarda al cerrarlo (con
   "Listo" o Escape). Sin versión guardada muestra solo la actual: no se distingue una instalación nueva de una
-  actualización desde una versión sin novedades. En desarrollo no muestra nada. El historial está en Settings, "Novedades".
+  actualización desde una versión sin novedades. En desarrollo no muestra nada. Muestra solo la versión instalada, aunque se hayan salteado otras; en Settings, "Novedades", también se ve solo esa. Las anteriores, con "Ver versiones anteriores en GitHub" (pedido de la usuaria el 2026-11-08: sin historial en la app).
 - **Firma del APK:** clave en `~/.lp-media-center-firma` (`lp-release.jks` y `clave.txt`), fuera del repo. En GitHub está en los
   secretos `ANDROID_KEYSTORE_BASE64` y `ANDROID_KEYSTORE_PASSWORD`. **Si se pierde, hay que desinstalar la app en cada
   dispositivo.** `npm run apk` la usa si está, para que el APK local también se instale encima.

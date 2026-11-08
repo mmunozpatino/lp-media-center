@@ -31,11 +31,12 @@ function isAllowedUrl(text, ports) {
 const isSeerrUrl = (text) => isAllowedUrl(text, [SEERR_PORT]);
 const isServiceUrl = (text) => isAllowedUrl(text, SERVICE_PORTS);
 
-/** Descargas de las versiones publicadas de este repo, para actualizar la app. */
+/** Las versiones publicadas de este repo: su página, para ver el historial, y sus descargas. */
 function isReleaseUrl(text) {
   try {
     const url = new URL(text);
-    return url.protocol === 'https:' && url.hostname === 'github.com' && url.pathname.startsWith('/mmunozpatino/lp-media-center/releases/');
+    const base = '/mmunozpatino/lp-media-center/releases';
+    return url.protocol === 'https:' && url.hostname === 'github.com' && (url.pathname === base || url.pathname.startsWith(base + '/'));
   } catch {
     return false;
   }

@@ -493,7 +493,9 @@ describe('novedades', () => {
 describe('enlaces de actualización', () => {
   it('solo abre descargas de las versiones de este repo', () => {
     assert.equal(isReleaseUrl('https://github.com/mmunozpatino/lp-media-center/releases/download/v0.1.3/LP-Cine-Vault-Setup.exe'), true);
+    assert.equal(isReleaseUrl('https://github.com/mmunozpatino/lp-media-center/releases'), true);
     for (const url of [
+      'https://github.com/mmunozpatino/lp-media-center/releases-falsas',
       'http://github.com/mmunozpatino/lp-media-center/releases/download/v1/x.exe',
       'https://github.com/otra/lp-media-center/releases/download/v1/x.exe',
       'https://github.com.evil.example/mmunozpatino/lp-media-center/releases/x',
