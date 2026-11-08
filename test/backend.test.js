@@ -704,7 +704,7 @@ describe('pedidos pendientes', () => {
       ),
     );
     const [movie, show] = status.requests.items;
-    assert.deepEqual([movie.title, movie.year, movie.kind, movie.requestedBy], ['Matrix', '1999', 'movie', 'Ana']);
+    assert.deepEqual([movie.title, movie.year, movie.kind, movie.requestedBy, movie.origin], ['Matrix', '1999', 'movie', 'Ana', 'seerr']);
     assert.deepEqual([show.title, show.year, show.kind, show.seasons], ['The Office', '2005', 'tv', [1, 3]]);
     assert.equal(status.requests.total, 60);
     const body = JSON.stringify(status.requests);
@@ -1331,6 +1331,7 @@ describe('pedidos que no pasaron por Seerr', () => {
     assert.equal(result.items[0].title, 'Close Encounters of the Third Kind');
     assert.equal(result.items[0].status, 'notGrabbed');
     assert.equal(result.items[0].kind, 'movie');
+    assert.equal(result.items[0].origin, 'telegram');
   });
 
   it('no repite lo que ya está en Seerr ni lo que se está bajando', () => {

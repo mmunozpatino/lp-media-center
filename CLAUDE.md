@@ -130,7 +130,8 @@ Network y Settings. En celular, servicios de a dos por fila, como pidió la usua
 
 **Pedidos fuera de Seerr:** el bot de Telegram agrega directo a Radarr o Sonarr. Por eso `requests` suma lo que Radarr
 (`/wanted/missing`) y Sonarr (`/series`) tienen monitoreado, sin archivo y fuera de la cola, con estado `notGrabbed` o
-`notReleased`. El 2026-11-07, Radarr no pudo mandar un pedido del bot porque qBittorrent todavía no había abierto tras
+`notReleased`. Cada pedido trae `origin`: `seerr` o `telegram` (lo de Radarr o Sonarr fuera de Seerr; el bot no lo marca, así que lo
+ agregado a mano también sale como Telegram), y la interfaz lo muestra como etiqueta. El 2026-11-07, Radarr no pudo mandar un pedido del bot porque qBittorrent todavía no había abierto tras
 el arranque, y no vuelve a buscarlo solo: hay que buscarlo de nuevo en Radarr. Conviene que el bot espere a qBittorrent.
 
 **Buscar la PC:** la subred propia en 254 direcciones, de a 24 y con timeout de 2 s. Con 800 ms fallaba: el primer pedido del

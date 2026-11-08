@@ -531,6 +531,7 @@ async function collectRequests(config) {
         seasons: (request.seasons ?? []).map((season) => season.seasonNumber),
         requestedBy: request.requestedBy?.displayName ?? null,
         createdAt: request.createdAt ?? null,
+        origin: 'seerr',
       })),
     );
     return { items, total, error: null };
@@ -547,6 +548,8 @@ export function withoutDownloading(requests, downloads) {
 }
 
 // --- Lo que Radarr y Sonarr esperan sin que haya pasado por Seerr, como lo pedido por el bot ---
+// Su origen se informa como 'telegram': fuera de Seerr, los pedidos entran por el bot. El bot no los marca, así que
+// algo agregado a mano en Radarr o Sonarr también sale así.
 
 /** Monitoreado, sin archivo y fuera de la cola. Lo de Seerr gana si está en los dos lados. */
 export function waitingInArrs({ movies = [], series = [] }, requests, downloads) {
@@ -569,6 +572,7 @@ export function waitingInArrs({ movies = [], series = [] }, requests, downloads)
       requestedBy: null,
       createdAt: movie.added ?? null,
       source: 'radarr',
+      origin: 'telegram',
     });
   }
   for (const show of series) {
@@ -587,6 +591,7 @@ export function waitingInArrs({ movies = [], series = [] }, requests, downloads)
       requestedBy: null,
       createdAt: show.added ?? null,
       source: 'sonarr',
+      origin: 'telegram',
     });
   }
   return { ...requests, items: [...requests.items, ...items], total: requests.total + items.length };

@@ -1362,6 +1362,28 @@
         text-overflow: ellipsis;
       }
 
+      .origin-chip {
+        display: inline-block;
+        margin: 3px 6px 0 0;
+        padding: 1px 7px;
+        border-radius: 999px;
+        font-size: 10.5px;
+        font-weight: 600;
+        line-height: 16px;
+        vertical-align: 1px;
+        white-space: nowrap;
+      }
+
+      .origin-seerr {
+        background: color-mix(in srgb, var(--purple) 20%, transparent);
+        color: var(--purple-text);
+      }
+
+      .origin-telegram {
+        background: color-mix(in srgb, var(--blue) 20%, transparent);
+        color: var(--blue);
+      }
+
       .request-age {
         flex: none;
         color: var(--muted);
@@ -3985,6 +4007,20 @@
         return box;
       }
 
+      // De dónde vino cada pedido. Lo de Radarr o Sonarr que no pasó por Seerr lo informa el backend como Telegram.
+      const REQUEST_ORIGINS = {
+        seerr: ['Seerr', 'Pedido desde Seerr'],
+        telegram: ['Telegram', 'Agregado directo en Radarr o Sonarr: por el bot de Telegram (o a mano)'],
+      };
+
+      function originChip(request) {
+        const origin = REQUEST_ORIGINS[request.origin];
+        if (!origin) return null;
+        const chip = el('span', `origin-chip origin-${request.origin}`, origin[0]);
+        chip.title = origin[1];
+        return chip;
+      }
+
       function requestTitle(request) {
         return request.year ? `${request.title} (${request.year})` : request.title;
       }
@@ -3998,7 +4034,7 @@
                   'div',
                   'request',
                   requestPoster(request, 14),
-                  el('div', 'request-text', el('span', 'request-title', requestTitle(request))),
+                  el('div', 'request-text', el('span', 'request-title', requestTitle(request)), originChip(request)),
                   el('span', 'request-age', timeAgo(request.createdAt)),
                 ),
               )
@@ -4220,7 +4256,7 @@
                 'div',
                 'request-text',
                 el('span', 'request-title', requestTitle(request)),
-                el('p', 'muted small', requestFacts(request)),
+                el('p', 'muted small request-facts', originChip(request), requestFacts(request)),
               ),
               el('span', 'request-age', timeAgo(request.createdAt)),
             ),
