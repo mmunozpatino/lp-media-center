@@ -360,6 +360,7 @@ function normalizeDownload(source, records, { id, title, subtitle }) {
     title,
     subtitle,
     releaseTitle: first.title ?? null,
+    downloadId: first.downloadId ?? null,
     status: first.status ?? null,
     trackedState: first.trackedDownloadState ?? null,
     trackedStatus: first.trackedDownloadStatus ?? null,
@@ -1597,6 +1598,95 @@ export function createRequestRemover(
   };
 }
 
+// --- Importar a mano una descarga trabada ---
+// Radarr o Sonarr frenan la importación cuando no pueden confirmar que el archivo es lo pedido (por ejemplo, un nombre con
+// dos años). Es lo mismo que su "Manual Import": se importa como el título para el que se pidió la descarga. No borra nada.
+
+const BLOCKED_STATES = new Set(['importBlocked', 'importPending']);
+
+export function createImporter(config, { fetchImpl = fetch } = {}) {
+  let busy = false;
+
+  async function arr(source, pathname, { method = 'GET', body } = {}) {
+    const service = config.services[source];
+    const key = await readXmlApiKey(service.keyFile);
+    let response;
+    try {
+      response = await fetchImpl(`${service.url}/api/v3${pathname}`, {
+        method,
+        redirect: 'manual',
+        headers: body ? { 'X-Api-Key': key, 'Content-Type': 'application/json' } : { 'X-Api-Key': key },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(config.httpTimeoutMs * 5),
+      });
+    } catch {
+      throw new ProbeError('down', 'No responde');
+    }
+    if (!response.ok) throw new ProbeError('error', `Respondió HTTP ${response.status}`);
+    return response.json();
+  }
+
+  /** La descarga trabada y los archivos que Radarr o Sonarr proponen importar. */
+  async function inspect(source, downloadId) {
+    const program = source === 'radarr' ? 'Radarr' : 'Sonarr';
+    const queue = await arr(source, `/queue?pageSize=200&include${source === 'radarr' ? 'Movie' : 'Series'}=true`);
+    const record = (queue?.records ?? []).find((item) => item.downloadId === downloadId);
+    if (!record) throw new NotARequest(`Ya no está en la cola de ${program}.`);
+    if (!BLOCKED_STATES.has(record.trackedDownloadState)) throw new NotARequest('Esa descarga no está esperando una importación manual.');
+    const target = source === 'radarr' ? record.movie : record.series;
+    const targetId = source === 'radarr' ? record.movieId : record.seriesId;
+    if (!target || !targetId) throw new NotARequest(`${program} no sabe para qué título era esta descarga.`);
+    const scope = source === 'radarr' ? `movieId=${targetId}` : `seriesId=${targetId}`;
+    const candidates = await arr(source, `/manualimport?downloadId=${encodeURIComponent(downloadId)}&${scope}&filterExistingFiles=true`);
+    const files = (Array.isArray(candidates) ? candidates : []).filter(
+      (file) => file.path && !(file.rejections ?? []).some((rejection) => /sample/i.test(rejection.reason ?? '')),
+    );
+    if (!files.length) throw new NotARequest(`${program} no encontró archivos para importar. Hacelo desde ${program}.`);
+    if (source === 'sonarr' && files.some((file) => !file.episodes?.length)) {
+      throw new NotARequest('Sonarr no sabe a qué episodio corresponde algún archivo. Hacelo desde Sonarr, en Manual Import.');
+    }
+    const title = target.year ? `${target.title} (${target.year})` : target.title;
+    return { source, program, record, targetId, title, files };
+  }
+
+  return {
+    async plan(source, downloadId) {
+      try {
+        const { program, title, record, files } = await inspect(source, downloadId);
+        return [200, {
+          program,
+          title,
+          release: record.title ?? null,
+          files: files.map((file) => ({ name: file.relativePath ?? file.name ?? path.win32.basename(file.path), size: file.size ?? null })),
+          reasons: [...new Set((record.statusMessages ?? []).flatMap((message) => message.messages ?? []))],
+        }];
+      } catch (error) {
+        return [error instanceof NotARequest ? 409 : 502, { error: error.message || 'No se pudo revisar' }];
+      }
+    },
+
+    async run(source, downloadId) {
+      if (busy) return [409, { error: 'Ya hay una importación en curso' }];
+      busy = true;
+      try {
+        const { program, title, targetId, files } = await inspect(source, downloadId);
+        const common = (file) => ({ path: file.path, quality: file.quality, languages: file.languages, releaseGroup: file.releaseGroup, downloadId });
+        const list = files.map((file) =>
+          source === 'radarr'
+            ? { ...common(file), movieId: targetId }
+            : { ...common(file), seriesId: targetId, episodeIds: file.episodes.map((episode) => episode.id) },
+        );
+        await arr(source, '/command', { method: 'POST', body: { name: 'ManualImport', importMode: 'auto', files: list } });
+        return [200, { ok: true, message: `${program} está importando ${title}. En un momento pasa a la biblioteca.` }];
+      } catch (error) {
+        return [error instanceof NotARequest ? 409 : 502, { error: error.message || 'No se pudo importar' }];
+      } finally {
+        busy = false;
+      }
+    },
+  };
+}
+
 // --- Servidor HTTP ---
 
 function sendJson(res, status, body) {
@@ -1650,7 +1740,7 @@ function readJsonBody(req, limit = 16 * 1024) {
   });
 }
 
-export function createApp(collect, { allowedOrigins, act = null, auth = null, downloads = null, requests = null }) {
+export function createApp(collect, { allowedOrigins, act = null, auth = null, downloads = null, requests = null, imports = null }) {
   let inFlight = null;
 
   // Dos pedidos simultáneos comparten la misma consulta a los programas.
@@ -1722,6 +1812,15 @@ export function createApp(collect, { allowedOrigins, act = null, auth = null, do
       return sendJson(res, ...(await requests.remove(requestRoute[1], body)));
     }
 
+    // Importar a mano una descarga trabada: solo desde la app de esta PC, como pidió la usuaria.
+    const importRoute = /^\/api\/imports\/(radarr|sonarr)\/([A-Za-z0-9]{1,64})\/(plan|run)$/.exec(pathname);
+    if (importRoute && imports) {
+      if (!post) return sendJson(res, 405, { error: 'Solo POST' });
+      if (!isLocal || origin === undefined) return sendJson(res, 403, { error: 'Solo desde la app de la PC' });
+      const [, source, downloadId, step] = importRoute;
+      return sendJson(res, ...(await (step === 'plan' ? imports.plan(source, downloadId) : imports.run(source, downloadId))));
+    }
+
     const downloadsRoute = /^\/api\/downloads\/([a-z]+)$/.exec(pathname);
     if (downloadsRoute && downloads) {
       if (!post) return sendJson(res, 405, { error: 'Solo POST' });
@@ -1791,6 +1890,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     auth: createAuth(),
     downloads: createDownloadControl(DEFAULT_CONFIG),
     requests: createRequestRemover(DEFAULT_CONFIG),
+    imports: createImporter(DEFAULT_CONFIG),
   });
   try {
     await listen(server, HOST, PORT);

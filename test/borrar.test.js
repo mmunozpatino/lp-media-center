@@ -366,3 +366,55 @@ describe('lo que espera en el buzón', () => {
     assert.equal(waitingInMailbox(null, requests, { items: [] }), requests);
   });
 });
+
+describe('importar a mano una descarga trabada', () => {
+  const queue = {
+    records: [
+      { id: 1, downloadId: 'ABC', movieId: 283, trackedDownloadState: 'importBlocked', title: 'Obsession.2025.2026.2160p',
+        movie: { title: 'Obsession', year: 2026 }, statusMessages: [{ messages: ['Manual Import required.'] }] },
+      { id: 2, downloadId: 'DEF', movieId: 9, trackedDownloadState: 'downloading', movie: { title: 'Lucy', year: 2014 } },
+    ],
+  };
+  const candidates = [
+    { path: 'D:\Descargas\Obsession\Obsession.mp4', relativePath: 'Obsession.mp4', size: 10, quality: { q: 1 }, languages: [], rejections: [] },
+    { path: 'D:\Descargas\Obsession\sample.mp4', relativePath: 'sample.mp4', size: 1, rejections: [{ reason: 'Sample' }] },
+  ];
+
+  test('importa como el título para el que se pidió, sin las muestras, y no toca lo que no está trabado', async () => {
+    const { createImporter } = await import('../backend/server.js');
+    const programs = fakePrograms([
+      ['GET radarr /api/v3/queue', queue],
+      ['GET radarr /api/v3/manualimport', candidates],
+      ['POST radarr /api/v3/command', { id: 5 }],
+    ]);
+    const importer = createImporter(config, { fetchImpl: programs.fetchImpl });
+    const [status, plan] = await importer.plan('radarr', 'ABC');
+    assert.equal(status, 200);
+    assert.equal(plan.title, 'Obsession (2026)');
+    assert.deepEqual(plan.files.map((file) => file.name), ['Obsession.mp4']);
+    assert.equal((await importer.run('radarr', 'ABC'))[0], 200);
+    const command = JSON.parse(programs.calls.find((call) => call.method === 'POST').body);
+    assert.equal(command.name, 'ManualImport');
+    assert.deepEqual(command.files.map((file) => [file.path, file.movieId, file.downloadId]), [['D:\Descargas\Obsession\Obsession.mp4', 283, 'ABC']]);
+    assert.equal((await importer.plan('radarr', 'DEF'))[0], 409); // Se está bajando: no se importa.
+    assert.equal((await importer.plan('radarr', 'ZZZ'))[0], 409); // Ya no está.
+    assert.deepEqual(programs.deletes(), []);
+  });
+
+  test('desde la red no se acepta: solo desde la app de la PC', async () => {
+    const { createApp, listen } = await import('../backend/server.js');
+    const asked = [];
+    const imports = { plan: async (...args) => (asked.push(args), [200, {}]), run: async () => [200, {}] };
+    const server = createApp(async () => ({}), { allowedOrigins: ['app://lp-media-center'], imports });
+    const { port } = await listen(server, '127.0.0.1', 0);
+    try {
+      const sinOrigen = await fetch(`http://127.0.0.1:${port}/api/imports/radarr/ABC/plan`, { method: 'POST' });
+      assert.equal(sinOrigen.status, 403);
+      const local = await fetch(`http://127.0.0.1:${port}/api/imports/radarr/ABC/plan`, { method: 'POST', headers: { Origin: 'app://lp-media-center' } });
+      assert.equal(local.status, 200);
+      assert.deepEqual(asked, [['radarr', 'ABC']]);
+    } finally {
+      server.close();
+    }
+  });
+});

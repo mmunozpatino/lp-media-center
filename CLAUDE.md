@@ -150,6 +150,13 @@ solo ella controla la app. `createRequestRemover` en `backend/server.js`, tests 
 **Pantalla de carga:** `#splash` tapa todo al abrir, con el carrete girando y "Conectando con la PC…" (en el celu, "Buscando la
 PC…"). Se va con el primer estado, un error (`showFailure`) o cualquier pantalla de `showGate`.
 
+**Importar a mano (solo Windows):** una descarga con `trackedState` `importBlocked` muestra "Importar…" en Downloads. Pasa cuando
+Radarr o Sonarr no pueden confirmar el título, por ejemplo con dos años en el nombre (*Obsession.2025.2026…*, 2026-11-09: "release
+was matched to movie by ID. Manual Import required"). `createImporter`: `POST /api/imports/<radarr|sonarr>/<downloadId>/plan`
+lee la cola y `/manualimport` y propone los archivos (sin muestras); `/run` manda el comando `ManualImport` con el título para el
+que se pidió la descarga. Solo desde esta PC y con el origen de la app. No borra nada. La revisión se probó contra Radarr real
+con *Obsession*; la importación real no se hizo desde acá: la tiene que hacer la usuaria.
+
 **Pausar descargas:** frena en qBittorrent lo que esté activo y guarda cuáles fueron en `~/.lp-media-center/pausa.json`, para que
 reanudar no arranque lo frenado a mano. Requiere activar en qBittorrent "Omitir autenticación para clientes en localhost"; sin eso,
 el botón explica qué activar.

@@ -3019,6 +3019,35 @@
         password.input.focus();
       }
 
+      /**
+       * Importar a mano una descarga que Radarr o Sonarr frenaron (lo mismo que su "Manual Import"). Solo en la app de
+       * Windows: el backend lo rechaza desde la red.
+       */
+      function importButton(item) {
+        if (isMobile || item.trackedState !== 'importBlocked' || !item.downloadId) return null;
+        const button = actionButton('Importar…', async () => {
+          const route = `/api/imports/${item.source}/${encodeURIComponent(item.downloadId)}`;
+          button.disabled = true;
+          try {
+            const plan = await postJson(route + '/plan', {});
+            if (plan.status !== 200) throw new Error(plan.json.error ?? 'No se pudo revisar');
+            const { program, title, files } = plan.json;
+            const list = files.map((file) => '• ' + file.name + (file.size ? ` (${formatBytes(file.size)})` : '')).join('\n');
+            const question = `¿Importar como ${title}?\n\n${list}\n\n${program} la pasa a la biblioteca, igual que con su Manual Import. No se borra nada.`;
+            if (!window.confirm(question)) return;
+            const result = await postJson(route + '/run', {});
+            if (result.status !== 200) throw new Error(result.json.error ?? 'No se pudo importar');
+            notify(result.json.message, 'green');
+            setTimeout(refresh, 4000);
+          } catch (error) {
+            notify(error.message, 'red');
+          } finally {
+            button.disabled = false;
+          }
+        });
+        return el('div', 'row-actions', button);
+      }
+
       async function requestDownloads(action) {
         const response = await apiRequest(pcHost, '/api/downloads/' + action, { method: 'POST' });
         return response.json();
@@ -4450,6 +4479,7 @@
           el('p', 'muted small', facts.join(' · ')),
           item.progress !== null ? progressBar(item.progress) : null,
           issueList(item.problems, item.trackedStatus === 'error'),
+          importButton(item),
         );
       }
 
