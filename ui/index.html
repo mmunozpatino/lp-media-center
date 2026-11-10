@@ -443,6 +443,82 @@
         }
       }
 
+      /* --- Pantalla de carga --- */
+      .splash {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        padding: 24px;
+        background: radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--purple) 16%, var(--bg)), var(--bg) 62%);
+        transition: opacity 0.35s ease, visibility 0.35s;
+      }
+
+      .splash.gone {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      .splash-reel {
+        width: 96px;
+        height: 96px;
+        filter: drop-shadow(0 0 24px color-mix(in srgb, var(--gold) 35%, transparent));
+        animation: spin 2.4s linear infinite;
+        transform-origin: 45% 45%;
+      }
+
+      .splash-name .brand-reel {
+        display: none;
+      }
+
+      .splash-name .brand-name {
+        font-size: 26px;
+      }
+
+      .splash-name .brand-sub {
+        text-align: center;
+      }
+
+      .splash-text {
+        margin: 6px 0 0;
+        color: var(--text-2);
+        font-size: 14px;
+        text-align: center;
+      }
+
+      .splash-bar {
+        position: relative;
+        width: 140px;
+        height: 3px;
+        overflow: hidden;
+        border-radius: 3px;
+        background: color-mix(in srgb, var(--purple) 18%, transparent);
+      }
+
+      .splash-bar::after {
+        content: '';
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 40%;
+        border-radius: 3px;
+        background: var(--purple);
+        animation: splash-bar 1.3s ease-in-out infinite;
+      }
+
+      @keyframes splash-bar {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(250%);
+        }
+      }
+
       .update {
         display: flex;
         flex-wrap: wrap;
@@ -2498,6 +2574,14 @@
         </g>
       </symbol>
     </svg>
+
+    <!-- Pantalla de carga: tapa todo hasta que llega el primer estado o aparece otra pantalla (emparejar, buscar, error). -->
+    <div id="splash" class="splash" role="status" aria-live="polite">
+      <svg class="splash-reel" viewBox="0 0 64 64" aria-hidden="true"><use href="#art-reel" /></svg>
+      <div class="splash-name" data-brand="splash"></div>
+      <p id="splash-text" class="splash-text">Conectando con la PC…</p>
+      <span class="splash-bar" aria-hidden="true"></span>
+    </div>
 
     <aside class="sidebar" id="sidebar">
       <div class="brand" data-brand="stack"></div>
@@ -4865,6 +4949,7 @@
           showSearch();
           return;
         }
+        hideSplash();
         const retry = `Sigo reintentando cada ${REFRESH_MS / 1000} segundos.`;
         const since = lastStatus ? ` Lo de abajo es de las ${formatClock(lastStatus.generatedAt)}.` : '';
         if (error.reachable) {
@@ -4886,8 +4971,18 @@
         updateBulkButtons();
       }
 
+      /** La pantalla de carga se va sola cuando hay algo que mostrar: el panel, un error u otra pantalla. */
+      function hideSplash() {
+        $('splash').classList.add('gone');
+      }
+
+      function setSplash(text) {
+        $('splash-text').textContent = text;
+      }
+
       /** Pantallas del celular que reemplazan al panel: emparejar, iniciar sesión o buscar. */
       function showGate(...children) {
+        hideSplash();
         gateOpen = true;
         document.body.classList.add('gated');
         $('banner').hidden = true;
@@ -5059,6 +5154,7 @@
           return;
         }
         $('summary').textContent = 'Buscando la PC…';
+        setSplash('Buscando la PC…');
         if (await findPc()) enterPanel();
         else showSearch();
       }
@@ -5273,6 +5369,7 @@
           lastStatus = await fetchStatus();
           if (isMobile) await rememberNetwork(lastStatus.network);
           render(lastStatus);
+          hideSplash();
           if (isMobile) renderConnection();
           $('banner').hidden = true;
           $('content').classList.remove('stale');
