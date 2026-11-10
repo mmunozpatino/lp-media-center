@@ -328,3 +328,41 @@ describe('ruta de borrado', () => {
     }
   });
 });
+
+describe('lo que espera en el buzón', () => {
+  test('lee /api/waiting una vez por minuto, nunca /api/pending, y sin publicar no muestra nada', async () => {
+    const { createMailboxReader } = await import('../backend/server.js');
+    let clock = 0;
+    const asked = [];
+    let reply = () => new Response('', { status: 404 });
+    const read = createMailboxReader({
+      file: mailboxFile,
+      now: () => clock,
+      fetchImpl: async (url, options) => (asked.push([url, options.headers.Authorization]), reply()),
+    });
+    assert.equal(await read(), null); // Todavía sin publicar.
+    reply = () => Response.json({ movies: [{ id: 3, tmdbId: 840, title: 'Metropolis', year: 1927 }], series: [] });
+    assert.equal(await read(), null); // Dentro del minuto no vuelve a preguntar.
+    clock += 61_000;
+    assert.deepEqual((await read()).movies.map((m) => m.id), [3]);
+    assert.deepEqual(asked.map(([url]) => url), ['https://buzon.example/api/waiting', 'https://buzon.example/api/waiting']);
+    assert.equal(asked[0][1], 'Bearer clave-buzon');
+  });
+
+  test('suma lo del buzón como pedido de Telegram, distinguiendo películas y series, sin repetir', async () => {
+    const { waitingInMailbox } = await import('../backend/server.js');
+    const requests = { items: [{ kind: 'movie', tmdbId: 1 }], total: 1, error: null };
+    const waiting = {
+      movies: [{ id: 3, tmdbId: 840, title: 'Metropolis', year: 1927 }, { id: 4, tmdbId: 1, title: 'Ya en Seerr' }],
+      series: [{ id: 3, tmdbId: 840, tvdbId: 9, title: 'Serie', year: 2020, seasons: '2' }, { id: 5, tmdbId: 77, title: 'Toda', seasons: 'all' }],
+    };
+    const result = waitingInMailbox(waiting, requests, { items: [] });
+    assert.deepEqual(result.items.slice(1).map((item) => [item.id, item.status, item.origin, item.seasons]), [
+      ['buzon-movie-3-840', 'waiting', 'telegram', []],
+      ['buzon-tv-3-840', 'waiting', 'telegram', [2]],
+      ['buzon-tv-5-77', 'waiting', 'telegram', []],
+    ]);
+    assert.equal(result.total, 4);
+    assert.equal(waitingInMailbox(null, requests, { items: [] }), requests);
+  });
+});

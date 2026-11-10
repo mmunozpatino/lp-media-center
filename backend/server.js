@@ -676,9 +676,72 @@ async function probePart({ id, name }, config, run) {
   }
 }
 
-export function createCollector(config, { run = runCommand, lanIp = detectLanIp } = {}) {
+// --- Lo que espera en el buzón del bot, todavía sin llegar a la PC ---
+// GET /api/waiting solo lee: /api/pending y /api/series/pending no se usan, porque además guardan la señal de vida del
+// programa de la PC. Es una consulta a internet, así que se repite como mucho una vez por minuto. Si el buzón no
+// responde o todavía no tiene /api/waiting publicado, no se muestra nada de ahí.
+
+export function createMailboxReader({ file = MAILBOX_CONFIG, fetchImpl = fetch, now = Date.now, everyMs = 60_000, timeoutMs = 5000 } = {}) {
+  let cache = null;
+  let cachedAt = -Infinity;
+  return async function readWaiting() {
+    if (now() - cachedAt < everyMs) return cache;
+    cachedAt = now();
+    cache = null;
+    try {
+      const { mailboxUrl, mailboxKey } = JSON.parse(readFileSync(file, 'utf8'));
+      if (typeof mailboxUrl !== 'string' || !/^https:\/\//.test(mailboxUrl) || !mailboxKey) return null;
+      const response = await fetchImpl(`${mailboxUrl.replace(/\/+$/, '')}/api/waiting`, {
+        headers: { Authorization: `Bearer ${mailboxKey}` },
+        redirect: 'manual',
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!response.ok) return null;
+      const body = await response.json();
+      cache = { movies: Array.isArray(body?.movies) ? body.movies : [], series: Array.isArray(body?.series) ? body.series : [] };
+    } catch {
+      cache = null;
+    }
+    return cache;
+  };
+}
+
+/** Suma lo que espera en el buzón, salvo lo que ya aparece por otro lado. */
+export function waitingInMailbox(waiting, requests, downloads) {
+  if (!waiting) return requests;
+  const known = new Set([
+    ...requests.items.map((item) => `${item.kind}-${item.tmdbId}`),
+    ...downloads.items.map((item) => `${item.mediaType}-${item.tmdbId}`),
+  ]);
+  const items = [];
+  const add = (kind, entry) => {
+    const id = Number(entry?.id);
+    const tmdbId = Number(entry?.tmdbId);
+    if (!Number.isInteger(id) || id <= 0 || !Number.isInteger(tmdbId) || tmdbId <= 0 || known.has(`${kind}-${tmdbId}`)) return;
+    known.add(`${kind}-${tmdbId}`);
+    const season = Number(entry.seasons);
+    items.push({
+      id: `buzon-${kind}-${id}-${tmdbId}`,
+      kind,
+      tmdbId,
+      status: 'waiting',
+      title: typeof entry.title === 'string' && entry.title ? entry.title : 'Sin título',
+      year: entry.year ? String(entry.year) : null,
+      posterPath: null,
+      seasons: kind === 'tv' && Number.isInteger(season) && season >= 0 ? [season] : [],
+      requestedBy: null,
+      createdAt: null,
+      origin: 'telegram',
+    });
+  };
+  for (const movie of waiting.movies) add('movie', movie);
+  for (const show of waiting.series) add('tv', show);
+  return { ...requests, items: [...requests.items, ...items], total: requests.total + items.length };
+}
+
+export function createCollector(config, { run = runCommand, lanIp = detectLanIp, mailbox = null } = {}) {
   return async function collect() {
-    const [parts, downloads, today, transfer, requests, disks, lan, libraries] = await Promise.all([
+    const [parts, downloads, today, transfer, requests, disks, lan, libraries, waiting] = await Promise.all([
       Promise.all(PARTS.map((part) => probePart(part, config, run))),
       collectDownloads(config),
       collectToday(config),
@@ -687,6 +750,7 @@ export function createCollector(config, { run = runCommand, lanIp = detectLanIp 
       readDisks(config, run).catch((error) => ({ items: [], ...describeFailure(error) })),
       lanIp().catch(() => null),
       collectLibraries(config),
+      mailbox ? mailbox().catch(() => null) : null,
     ]);
     const tailscale = parts.find((part) => part.id === 'tailscale');
     const { ip: tailscaleIp = null } = tailscale;
@@ -697,7 +761,9 @@ export function createCollector(config, { run = runCommand, lanIp = detectLanIp 
       parts,
       downloads: { ...downloads, ...today },
       ...transfer,
-      requests: requests.error ? requests : waitingInArrs(libraries, withoutDownloading(requests, downloads), downloads),
+      requests: requests.error
+        ? requests
+        : waitingInMailbox(waiting, waitingInArrs(libraries, withoutDownloading(requests, downloads), downloads), downloads),
       paused: readPausedHashes(config.pauseFile).length > 0,
       disks,
     };
@@ -1719,7 +1785,7 @@ export function listen(server, host, port) {
 
 // Se inicia solo al ejecutarlo; los tests importan este archivo sin abrir el puerto.
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const server = createApp(createCollector(DEFAULT_CONFIG), {
+  const server = createApp(createCollector(DEFAULT_CONFIG, { mailbox: createMailboxReader() }), {
     allowedOrigins: ALLOWED_ORIGINS,
     act: createController(DEFAULT_CONFIG),
     auth: createAuth(),

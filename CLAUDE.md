@@ -141,8 +141,10 @@ solo ella controla la app. `createRequestRemover` en `backend/server.js`, tests 
   lo acepta, lo dice y no sigue), Seerr (`DELETE /api/v1/request/<id>`), cola (`removeFromClient=true`), Radarr o Sonarr
   (`deleteFiles=true`) y Jellyfin (`POST /Library/Refresh`).
 - **Jellyfin:** necesita una clave en `~/.lp-media-center/jellyfin.key`, que todavía no existe: sin ella el paso solo avisa.
-- **Pendiente:** listar lo que espera en el buzón. `GET /api/pending` y `/api/series/pending` guardan además la señal de vida del
-  programa de la PC (`agent_seen`), así que la app no los consulta; se pidió a pelis-bot una lectura sin efectos.
+- **Lo que espera en el buzón:** `createMailboxReader` lee `GET /api/waiting` (solo lectura, misma clave) como mucho una vez por
+  minuto, y `waitingInMailbox` lo suma a `requests` con estado `waiting` e id `buzon-…`. Nunca `/api/pending` ni
+  `/api/series/pending`: guardan además la señal de vida del programa de la PC (`agent_seen`). Al 2026-11-09, `/api/waiting` está
+  escrito en pelis-bot pero sin publicar: responde 404 y la app no muestra nada de ahí.
 - **Sin probar en real:** solo con programas simulados. Probarlo solo con un pedido que elija la usuaria: es irreversible.
 
 **Pantalla de carga:** `#splash` tapa todo al abrir, con el carrete girando y "Conectando con la PC…" (en el celu, "Buscando la
