@@ -77,7 +77,8 @@ Escucha en `0.0.0.0`, solo IPv4, porque la PC tiene IPv6 público.
 - Dejar los servicios iniciando con la PC.
 - Proteger las interfaces web con usuario y contraseña, y no exponerlas a internet.
 - Limitar el acceso a la PC, la red local y Tailscale. Nunca abrir puertos en el router.
-- No mover, renombrar ni borrar nada de la biblioteca.
+- No mover, renombrar ni borrar nada de la biblioteca. **Única excepción:** borrar un pedido desde la app (ver "Borrar un
+  pedido"), que la usuaria pidió y confirmó el 2026-11-09 porque solo ella controla la app.
 - Pedir confirmación antes de cambios importantes, permisos de administrador o reglas de firewall.
 - No agregar indexadores: de eso se encarga el usuario.
 
@@ -119,7 +120,33 @@ Windows es un instalador NSIS. La interfaz va dentro
 **Ya está:** ver todo, con cada sección colapsable, pedidos pendientes en una sección aparte, y frenar o
 levantar cada programa o todos juntos. Frenar pide confirmación; levantar no.
 
-**Falta:** reintentar o sacar una descarga con confirmación. Nunca borra archivos de la biblioteca.
+**Falta:** reintentar una descarga. Lo único que borra archivos es borrar un pedido.
+
+**Borrar un pedido (la excepción a no tocar la biblioteca):** papelera en cada tarjeta de Requests y de Downloads. Pedido de la
+usuaria el 2026-11-09: sacar un pedido de Telegram o de Seerr de todos los pasos a los que llegó, archivo incluido; existe porque
+solo ella controla la app. `createRequestRemover` en `backend/server.js`, tests en `test/borrar.test.js`.
+- **Contraseña primero:** `POST /api/requests/<id>/plan` con `{ password }` verifica la contraseña del panel (`auth.verifyAdmin`,
+  también desde esta PC, 5 errores frenan un minuto) antes de revisar nada. Devuelve el plan (pasos, archivos, notas) y un
+  `token` de 3 minutos. `POST /api/requests/<id>/delete` con `{ token }` rehace el plan y solo borra si es idéntico.
+- **Ids:** Seerr (número), `radarr-<id>` o `sonarr-<id>` (Telegram), `cola-movie|tv-<tmdbId>` (Downloads; busca además el pedido
+  de Seerr) y `buzon-movie|tv-<idDelBuzón>-<tmdbId>` (lo que sigue en el buzón).
+- **Qué es un pedido lo decide el backend:** película monitoreada y en su propia carpeta dentro de `F:\Movies\_inbox` (raíz de
+  Seerr y del bot; la biblioteca está en las otras carpetas de `F:\Movies`, sin monitorear). Serie monitoreada y en su carpeta
+  dentro de `F:\Series`: solo se borran archivos de episodios con `downloadFolderImported` en el historial de Sonarr; la serie
+  entera, solo si todos sus archivos entraron así. Si no, borra esos episodios y deja de monitorear los pedidos que faltan.
+  Todo archivo tiene que estar dentro de la carpeta del título. Si algo no cumple, 409 y no se toca nada.
+- **Pasos, en orden, cortando en el primero que falle y diciendo qué quedó hecho:** buzón del bot
+  (`POST /api/requests|series/requests/<id>/cancel` con `mailboxUrl` y `mailboxKey` de `%USERPROFILE%\.pelis-bot\config.json`, que
+  nunca salen de la PC; si responde `cancelled: false`, vuelve a mirar Radarr o Sonarr tres veces cada 5 s; si el buzón todavía no
+  lo acepta, lo dice y no sigue), Seerr (`DELETE /api/v1/request/<id>`), cola (`removeFromClient=true`), Radarr o Sonarr
+  (`deleteFiles=true`) y Jellyfin (`POST /Library/Refresh`).
+- **Jellyfin:** necesita una clave en `~/.lp-media-center/jellyfin.key`, que todavía no existe: sin ella el paso solo avisa.
+- **Pendiente:** listar lo que espera en el buzón. `GET /api/pending` y `/api/series/pending` guardan además la señal de vida del
+  programa de la PC (`agent_seen`), así que la app no los consulta; se pidió a pelis-bot una lectura sin efectos.
+- **Sin probar en real:** solo con programas simulados. Probarlo solo con un pedido que elija la usuaria: es irreversible.
+
+**Pantalla de carga:** `#splash` tapa todo al abrir, con el carrete girando y "Conectando con la PC…" (en el celu, "Buscando la
+PC…"). Se va con el primer estado, un error (`showFailure`) o cualquier pantalla de `showGate`.
 
 **Pausar descargas:** frena en qBittorrent lo que esté activo y guarda cuáles fueron en `~/.lp-media-center/pausa.json`, para que
 reanudar no arranque lo frenado a mano. Requiere activar en qBittorrent "Omitir autenticación para clientes en localhost"; sin eso,

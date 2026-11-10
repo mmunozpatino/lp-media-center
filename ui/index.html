@@ -629,8 +629,71 @@
         overflow-y: auto;
       }
 
+      /* --- Borrar pedido --- */
+      .delete-badge {
+        color: var(--red);
+        background: color-mix(in srgb, var(--red) 16%, transparent);
+      }
+
+      .delete-body p + p,
+      .delete-body p + ul,
+      .delete-body ul + p {
+        margin-top: 10px;
+      }
+
+      .delete-steps {
+        margin: 8px 0 0;
+        padding-left: 20px;
+      }
+
+      .delete-steps li + li {
+        margin-top: 4px;
+      }
+
+      .delete-files {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border: 1px solid color-mix(in srgb, var(--red) 45%, var(--border));
+        border-radius: 10px;
+        background: color-mix(in srgb, var(--red) 8%, transparent);
+      }
+
+      .delete-files code {
+        display: block;
+        margin-top: 4px;
+        font-size: 12px;
+        word-break: break-all;
+      }
+
+      .delete-result li.failed {
+        color: var(--red);
+      }
+
+      .button.danger {
+        border-color: var(--red);
+        background: var(--red);
+        color: #fff;
+      }
+
+      .download-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .icon-button.delete-request {
+        flex: none;
+        color: var(--muted);
+      }
+
+      .icon-button.delete-request:hover {
+        color: var(--red);
+      }
+
       .news-actions {
         display: flex;
+        gap: 8px;
         justify-content: flex-end;
         padding: 12px 20px calc(16px + env(safe-area-inset-bottom));
         border-top: 1px solid var(--border-soft);
@@ -2601,6 +2664,18 @@
 
     <div id="toasts" class="toasts" aria-live="polite"></div>
 
+    <dialog id="delete-dialog" class="news-dialog delete-dialog" aria-labelledby="delete-title">
+      <div class="news-dialog-head">
+        <span class="news-badge delete-badge"><span data-icon="trash" data-size="20"></span></span>
+        <div>
+          <p class="news-kicker">Borrar pedido</p>
+          <h2 id="delete-title"></h2>
+        </div>
+      </div>
+      <div id="delete-body" class="news-list delete-body"></div>
+      <div id="delete-actions" class="news-actions"></div>
+    </dialog>
+
     <dialog id="news-dialog" class="news-dialog" aria-labelledby="news-title">
       <div class="news-dialog-head">
         <span class="news-badge"><span data-icon="sparkles" data-size="20"></span></span>
@@ -2762,6 +2837,102 @@
           timeoutMs: ACTION_TIMEOUT_MS,
         });
         return response.json();
+      }
+
+      // --- Borrar pedidos ---
+      // La única excepción a no tocar la biblioteca (ver el backend). La contraseña del panel se verifica en la PC antes
+      // de mostrar nada, y la confirmación dice exactamente qué se borra, archivos incluidos. Qué es un pedido lo decide
+      // el backend, nunca esta pantalla.
+      function deleteButton(id, title) {
+        const button = el('button', 'icon-button delete-request', icon('trash', 16));
+        button.type = 'button';
+        button.title = 'Borrar pedido';
+        button.setAttribute('aria-label', 'Borrar ' + title);
+        button.addEventListener('click', () => openDeleteDialog(id, title));
+        return button;
+      }
+
+      async function postJson(path, body) {
+        const response = await apiRequest(pcHost, path, { method: 'POST', body, timeoutMs: 120000 });
+        let json = {};
+        try {
+          json = await response.json();
+        } catch {}
+        return { status: response.status, json };
+      }
+
+      function openDeleteDialog(id, title) {
+        const dialog = $('delete-dialog');
+        const body = $('delete-body');
+        const actions = $('delete-actions');
+        const close = () => dialog.close();
+        const route = '/api/requests/' + encodeURIComponent(id);
+        $('delete-title').textContent = title;
+
+        // 1. La contraseña del panel.
+        const password = field('Contraseña del panel', 'password');
+        password.input.autocomplete = 'current-password';
+        const error = el('p', 'action-result failed');
+        const next = actionButton('Continuar', async () => {
+          await runForm(next, error, async () => {
+            const { status, json } = await postJson(route + '/plan', { password: password.input.value });
+            if (status !== 200) throw new Error(json.error ?? 'No se pudo revisar el pedido');
+            showPlan(json);
+          }, 'Revisando…');
+        }, true);
+        password.input.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') next.click();
+        });
+        body.replaceChildren(
+          el('p', null, 'Se saca de todos los pasos a los que llegó y no se puede deshacer. Para seguir, escribí la contraseña del panel.'),
+          password.node,
+          error,
+        );
+        actions.replaceChildren(actionButton('Cancelar', close), next);
+
+        // 2. Exactamente qué se borra.
+        function showPlan({ token, plan }) {
+          const parts = [el('p', null, 'Esto es lo que se va a hacer:'), el('ul', 'delete-steps', ...plan.steps.map((step) => el('li', null, step)))];
+          if (plan.files.length) {
+            parts.push(
+              el(
+                'div',
+                'delete-files',
+                el('strong', null, plan.files.length === 1 ? 'Se borra este archivo del disco, sin vuelta atrás:' : `Se borran estos ${plan.files.length} archivos del disco, sin vuelta atrás:`),
+                ...plan.files.map((file) => el('code', null, file)),
+              ),
+            );
+          } else {
+            parts.push(el('p', 'muted small', 'No se borra ningún archivo del disco.'));
+          }
+          for (const note of plan.notes) parts.push(el('p', 'muted small', note));
+          const failure = el('p', 'action-result failed');
+          parts.push(failure);
+          body.replaceChildren(...parts);
+          const confirm = actionButton('Borrar definitivamente', async () => {
+            await runForm(confirm, failure, async () => {
+              const { status, json } = await postJson(route + '/delete', { token });
+              if (status !== 200) throw new Error(json.error ?? 'No se pudo borrar');
+              showResult(json);
+            }, 'Borrando…');
+          });
+          confirm.classList.add('danger');
+          confirm.disabled = !plan.steps.length;
+          actions.replaceChildren(actionButton('Cancelar', close), confirm);
+        }
+
+        // 3. Qué pasó en cada paso.
+        function showResult({ ok, results }) {
+          body.replaceChildren(
+            el('p', null, ok ? 'Listo: el pedido se borró.' : 'No se completó todo. Esto es lo que pasó:'),
+            el('ul', 'delete-steps delete-result', ...results.map((result) => el('li', result.ok ? null : 'failed', (result.ok ? '✓ ' : '✗ ') + result.message))),
+          );
+          actions.replaceChildren(actionButton('Listo', close, true));
+          refresh();
+        }
+
+        dialog.showModal();
+        password.input.focus();
       }
 
       async function requestDownloads(action) {
@@ -3691,6 +3862,7 @@
         "hard-drive": "<path d=\"M10 16h.01\"/><path d=\"M2.212 11.577a2 2 0 0 0-.212.896V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5.527a2 2 0 0 0-.212-.896L18.55 5.11A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z\"/><path d=\"M21.946 12.013H2.054\"/><path d=\"M6 16h.01\"/>",
         "menu": "<path d=\"M4 5h16\"/><path d=\"M4 12h16\"/><path d=\"M4 19h16\"/>",
         "ellipsis": "<circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/>",
+        "trash": "<path d=\"M3 6h18\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/><path d=\"M10 11v6\"/><path d=\"M14 11v6\"/>",
       };
 
       /** Logos de cada programa, de walkxcode/dashboard-icons, como data URI. */
@@ -4184,7 +4356,12 @@
         return el(
           'article',
           'card',
-          el('h3', null, item.subtitle ? `${item.title} (${item.subtitle})` : item.title),
+          el(
+            'div',
+            'download-head',
+            el('h3', null, item.subtitle ? `${item.title} (${item.subtitle})` : item.title),
+            item.tmdbId ? deleteButton(`cola-${item.mediaType}-${item.tmdbId}`, item.title) : null,
+          ),
           el('p', 'muted small', facts.join(' · ')),
           item.progress !== null ? progressBar(item.progress) : null,
           issueList(item.problems, item.trackedStatus === 'error'),
@@ -4259,6 +4436,7 @@
                 el('p', 'muted small request-facts', originChip(request), requestFacts(request)),
               ),
               el('span', 'request-age', timeAgo(request.createdAt)),
+              deleteButton(String(request.id), requestTitle(request)),
             ),
           ),
         );

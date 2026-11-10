@@ -1014,6 +1014,27 @@ export function createAuth({ file = AUTH_FILE, now = Date.now } = {}) {
       return [200, { token }];
     },
 
+    /**
+     * La contraseña del panel, pedida de nuevo para algo irreversible (borrar un pedido). Vale también desde esta PC,
+     * donde no se pide login, y tiene su propio límite de intentos.
+     */
+    verifyAdmin({ password } = {}) {
+      if (!data.hash) return [403, { error: 'Primero creá la contraseña del panel en Settings, en la app de la PC' }];
+      const failures = loginFailures.get('admin');
+      if (failures && failures.count >= LOGIN_MAX_FAILURES && now() < failures.until) {
+        return [429, { error: 'Demasiados intentos. Esperá un minuto.' }];
+      }
+      const good =
+        typeof password === 'string' && password.length <= 1024 && sameBytes(hashPassword(password, data.salt), data.hash);
+      if (!good) {
+        const count = failures && now() < failures.until ? failures.count + 1 : 1;
+        loginFailures.set('admin', { count, until: now() + LOGIN_LOCK_MS });
+        return [401, { error: 'Contraseña incorrecta' }];
+      }
+      loginFailures.delete('admin');
+      return [200, { ok: true }];
+    },
+
     isValidToken(token) {
       if (typeof token !== 'string') return false;
       const tokenHash = sha256(token);
@@ -1137,6 +1158,379 @@ export function createDownloadControl(config) {
   };
 }
 
+// --- Borrar un pedido: la única excepción a "no mover, renombrar ni borrar nada de la biblioteca" ---
+// Lo pidió la usuaria el 2026-11-09: solo ella controla la app. Saca el pedido de cada paso al que llegó (buzón del bot,
+// Seerr, cola de qBittorrent, Radarr o Sonarr con su archivo) y le pide a Jellyfin que revise. Todas las comprobaciones
+// de que algo es un pedido se hacen acá, nunca en la interfaz:
+// - Película: monitoreada y en su propia carpeta dentro de F:\Movies\_inbox, donde entran los pedidos de Seerr y del bot.
+//   La biblioteca existente está en las otras carpetas de F:\Movies y sin monitorear.
+// - Serie: monitoreada y en su propia carpeta dentro de F:\Series. Solo se borran archivos de episodios que Sonarr registra
+//   como importados de una descarga; lo importado de la biblioteca nunca tiene ese registro. La serie entera, solo si todos
+//   sus archivos entraron así.
+
+export const REQUEST_ROOTS = { movie: 'F:\\Movies\\_inbox', tv: 'F:\\Series' };
+const CONFIRM_MS = 3 * 60 * 1000;
+const MAILBOX_CONFIG = path.join(os.homedir(), '.pelis-bot', 'config.json');
+const JELLYFIN_KEY_FILE = path.join(os.homedir(), '.lp-media-center', 'jellyfin.key');
+const IMPORT_EVENT = 'downloadFolderImported';
+
+class NotARequest extends Error {}
+
+/** Si `folder` es la carpeta propia de un título directamente dentro de `root`, sin subir ni bajar de nivel. */
+export function isTitleFolder(folder, root) {
+  if (typeof folder !== 'string' || !folder || folder.includes('..')) return false;
+  const clean = path.win32.normalize(folder).replace(/\\+$/, '');
+  return path.win32.dirname(clean).toLowerCase() === root.toLowerCase() && path.win32.basename(clean) !== '';
+}
+
+/** Si `file` está dentro de `folder`. */
+export function isInsideFolder(file, folder) {
+  if (typeof file !== 'string' || typeof folder !== 'string' || file.includes('..')) return false;
+  return path.win32.normalize(file).toLowerCase().startsWith(path.win32.normalize(folder).replace(/\\+$/, '').toLowerCase() + '\\');
+}
+
+/** El id que lista la interfaz: Seerr (número), Radarr o Sonarr ("radarr-12"), o algo que sigue en el buzón. */
+export function parseRequestId(id) {
+  let match;
+  if ((match = /^(\d{1,9})$/.exec(id))) return { origin: 'seerr', seerrId: Number(match[1]) };
+  if ((match = /^(radarr|sonarr)-(\d{1,9})$/.exec(id))) {
+    return { origin: 'telegram', kind: match[1] === 'radarr' ? 'movie' : 'tv', arrId: Number(match[2]) };
+  }
+  // Lo que se está bajando (Downloads): se busca por tmdbId en Radarr o Sonarr, con la comprobación estricta.
+  if ((match = /^cola-(movie|tv)-(\d{1,9})$/.exec(id))) return { origin: 'cola', kind: match[1], tmdbId: Number(match[2]) };
+  if ((match = /^buzon-(movie|tv)-(\d{1,9})-(\d{1,9})$/.exec(id))) {
+    return { origin: 'telegram', kind: match[1], mailboxId: Number(match[2]), tmdbId: Number(match[3]) };
+  }
+  return null;
+}
+
+export function createRequestRemover(
+  config,
+  {
+    fetchImpl = fetch,
+    sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now = Date.now,
+    mailboxConfigFile = MAILBOX_CONFIG,
+    jellyfinKeyFile = JELLYFIN_KEY_FILE,
+    roots = REQUEST_ROOTS,
+    takenRetries = 3,
+  } = {},
+) {
+  const confirmations = new Map();
+  let busy = false;
+
+  async function call(url, { method = 'GET', headers = {}, body } = {}) {
+    let response;
+    try {
+      response = await fetchImpl(url, {
+        method,
+        redirect: 'manual',
+        headers: body ? { ...headers, 'Content-Type': 'application/json' } : headers,
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(config.httpTimeoutMs * 4),
+      });
+    } catch {
+      throw new ProbeError('down', 'No responde');
+    }
+    if (response.status === 404) return null;
+    if (!response.ok) throw new ProbeError('error', `Respondió HTTP ${response.status}`);
+    const text = await response.text();
+    try {
+      return text ? JSON.parse(text) : {};
+    } catch {
+      throw new ProbeError('error', 'Respondió algo que no se pudo leer');
+    }
+  }
+
+  const arrKeys = {};
+  async function arr(source, pathname, options = {}) {
+    const service = config.services[source];
+    arrKeys[source] ??= await readXmlApiKey(service.keyFile);
+    return call(`${service.url}/api/v3${pathname}`, { ...options, headers: { 'X-Api-Key': arrKeys[source] } });
+  }
+
+  async function seerr(pathname, options = {}) {
+    const service = config.services.seerr;
+    const key = await readSeerrApiKey(service.keyFile);
+    return call(`${service.url}/api/v1${pathname}`, { ...options, headers: { 'X-Api-Key': key } });
+  }
+
+  async function findMovie(ref) {
+    if (ref.arrId) return arr('radarr', `/movie/${ref.arrId}`);
+    if (!ref.tmdbId) return null;
+    const list = await arr('radarr', `/movie?tmdbId=${ref.tmdbId}`);
+    return (Array.isArray(list) ? list : []).find((movie) => movie.tmdbId === ref.tmdbId) ?? null;
+  }
+
+  async function findSeries(ref) {
+    if (ref.arrId) return arr('sonarr', `/series/${ref.arrId}`);
+    const all = await arr('sonarr', '/series');
+    return (
+      (Array.isArray(all) ? all : []).find(
+        (series) => (ref.tvdbId && series.tvdbId === ref.tvdbId) || (ref.tmdbId && series.tmdbId === ref.tmdbId),
+      ) ?? null
+    );
+  }
+
+  /** Película de un pedido: qué torrents y qué carpeta se van. Null si no está en Radarr. */
+  async function moviePart(ref, strict) {
+    const movie = await findMovie(ref);
+    if (!movie) return null;
+    if (!movie.monitored || !isTitleFolder(movie.path, roots.movie)) {
+      if (strict) throw new NotARequest(`${movie.title ?? 'Esta película'} no figura como pedido: está en la biblioteca. No se borra.`);
+      return { skipped: `Radarr: ${movie.title ?? 'la película'} está en la biblioteca, no se toca.` };
+    }
+    const file = movie.hasFile ? movie.movieFile?.path ?? null : null;
+    if (file && !isInsideFolder(file, movie.path)) throw new NotARequest('El archivo no está en la carpeta de la película. No se borra.');
+    const queue = await arr('radarr', `/queue?movieIds=${movie.id}&pageSize=100`);
+    const queueIds = (queue?.records ?? []).filter((record) => record.movieId === movie.id).map((record) => record.id);
+    return { source: 'radarr', id: movie.id, title: movie.title, folder: movie.path, files: file ? [file] : [], queueIds, whole: true };
+  }
+
+  /** Serie de un pedido: la serie entera o solo los episodios que entraron por una descarga. */
+  async function seriesPart(ref, strict) {
+    const series = await findSeries(ref);
+    if (!series) return null;
+    if (!series.monitored || !isTitleFolder(series.path, roots.tv)) {
+      if (strict) throw new NotARequest(`${series.title ?? 'Esta serie'} no figura como pedido: está en la biblioteca. No se borra.`);
+      return { skipped: `Sonarr: ${series.title ?? 'la serie'} está en la biblioteca, no se toca.` };
+    }
+    const [episodes, files, history, queue] = await Promise.all([
+      arr('sonarr', `/episode?seriesId=${series.id}`),
+      arr('sonarr', `/episodefile?seriesId=${series.id}`),
+      arr('sonarr', `/history/series?seriesId=${series.id}&eventType=${IMPORT_EVENT}`),
+      arr('sonarr', `/queue?seriesIds=${series.id}&pageSize=200`),
+    ]);
+    const downloaded = new Set((Array.isArray(history) ? history : []).filter((event) => event.eventType === IMPORT_EVENT).map((event) => event.episodeId));
+    const allEpisodes = Array.isArray(episodes) ? episodes : [];
+    const allFiles = Array.isArray(files) ? files : [];
+    const requestedFileIds = new Set(
+      allEpisodes.filter((episode) => episode.hasFile && downloaded.has(episode.id)).map((episode) => episode.episodeFileId),
+    );
+    const whole = allFiles.every((file) => requestedFileIds.has(file.id));
+    const doomed = allFiles.filter((file) => requestedFileIds.has(file.id));
+    for (const file of doomed) {
+      if (!isInsideFolder(file.path, series.path)) throw new NotARequest('Un archivo no está en la carpeta de la serie. No se borra.');
+    }
+    // Además de lo bajado, deja de buscar lo que falta: los episodios monitoreados sin archivo.
+    const unmonitor = allEpisodes
+      .filter((episode) => (episode.hasFile && requestedFileIds.has(episode.episodeFileId)) || (episode.monitored && !episode.hasFile))
+      .map((episode) => episode.id);
+    const queueIds = (queue?.records ?? []).filter((record) => record.seriesId === series.id).map((record) => record.id);
+    return {
+      source: 'sonarr',
+      id: series.id,
+      title: series.title,
+      folder: series.path,
+      files: doomed.map((file) => file.path),
+      fileIds: doomed.map((file) => file.id),
+      unmonitor,
+      queueIds,
+      whole,
+      keptFiles: allFiles.length - doomed.length,
+    };
+  }
+
+  function readMailbox() {
+    try {
+      const { mailboxUrl, mailboxKey } = JSON.parse(readFileSync(mailboxConfigFile, 'utf8'));
+      if (typeof mailboxUrl !== 'string' || !/^https:\/\//.test(mailboxUrl) || typeof mailboxKey !== 'string' || !mailboxKey) return null;
+      return { url: mailboxUrl.replace(/\/+$/, ''), key: mailboxKey };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Arma lo que se va a borrar, sin tocar nada. Falla con NotARequest si no se puede asegurar que es un pedido. */
+  async function buildPlan(id) {
+    const ref = parseRequestId(id);
+    if (!ref) throw new NotARequest('Ese pedido no existe');
+    const plan = { id, title: null, kind: ref.kind, mailbox: null, seerr: null, arr: null, notes: [] };
+    if (ref.origin === 'seerr') {
+      const request = await seerr(`/request/${ref.seerrId}`);
+      if (!request) throw new NotARequest('Ese pedido ya no está en Seerr');
+      ref.kind = request.type === 'tv' ? 'tv' : 'movie';
+      ref.tmdbId = request.media?.tmdbId ?? null;
+      ref.tvdbId = request.media?.tvdbId ?? null;
+      plan.kind = ref.kind;
+      plan.seerr = { id: ref.seerrId };
+    }
+    if (ref.origin === 'cola') {
+      // Si vino de Seerr, su pedido también se borra.
+      const page = await seerr('/request?take=100&skip=0&filter=all&sort=added');
+      const match = (page?.results ?? []).find(
+        (request) => request.media?.tmdbId === ref.tmdbId && (request.type === 'tv' ? 'tv' : 'movie') === ref.kind,
+      );
+      if (match) plan.seerr = { id: match.id };
+    }
+    if (ref.mailboxId) plan.mailbox = { kind: ref.kind, id: ref.mailboxId, tmdbId: ref.tmdbId };
+    // Lo que viene de Telegram o de la cola solo existe como pedido en Radarr o Sonarr: ahí la comprobación es estricta.
+    const strict = (ref.origin === 'telegram' && !ref.mailboxId) || ref.origin === 'cola';
+    const part = ref.kind === 'tv' ? await seriesPart(ref, strict) : await moviePart(ref, strict);
+    if (strict && !part) throw new NotARequest('Ya no está en Radarr ni en Sonarr');
+    if (part?.skipped) plan.notes.push(part.skipped);
+    else plan.arr = part;
+    plan.title = plan.arr?.title ?? (ref.origin === 'seerr' ? `Pedido ${ref.seerrId} de Seerr` : 'Pedido del bot');
+    if (ref.origin === 'seerr' && part === null) plan.notes.push('Todavía no llegó a Radarr ni a Sonarr.');
+    return plan;
+  }
+
+  /** Lo que ve la usuaria antes de confirmar: cada paso y cada archivo, sin claves ni direcciones internas. */
+  function describe(plan) {
+    const steps = [];
+    if (plan.mailbox) steps.push('Cancelar el pedido que espera en el buzón del bot');
+    if (plan.seerr) steps.push('Borrar el pedido en Seerr');
+    const a = plan.arr;
+    if (a) {
+      const program = a.source === 'radarr' ? 'Radarr' : 'Sonarr';
+      if (a.queueIds.length) steps.push(`Sacar ${a.queueIds.length === 1 ? 'el torrent' : `${a.queueIds.length} torrents`} de qBittorrent, con lo que ya se bajó`);
+      if (a.whole) steps.push(`Borrar ${a.source === 'radarr' ? 'la película' : 'la serie'} de ${program}, con su carpeta: ${a.folder}`);
+      else {
+        steps.push(`Borrar de ${program} ${a.files.length === 1 ? 'el episodio pedido' : `los ${a.files.length} episodios pedidos`} y dejar de buscar los que faltan`);
+        steps.push(`Se conservan ${a.keptFiles === 1 ? '1 episodio que ya estaba' : `${a.keptFiles} episodios que ya estaban`} en la biblioteca`);
+      }
+      steps.push('Pedirle a Jellyfin que revise la biblioteca');
+    }
+    return { title: plan.title, steps, files: plan.arr?.files ?? [], notes: plan.notes, deletesFiles: Boolean(plan.arr?.files.length) };
+  }
+
+  const fingerprint = (plan) => sha256(JSON.stringify(plan));
+
+  async function cancelInMailbox(mailbox) {
+    const box = readMailbox();
+    if (!box) return { ok: false, message: 'No se encontró la configuración del buzón del bot en esta PC.' };
+    const route = mailbox.kind === 'tv' ? `/api/series/requests/${mailbox.id}/cancel` : `/api/requests/${mailbox.id}/cancel`;
+    let result;
+    try {
+      result = await call(`${box.url}${route}`, { method: 'POST', headers: { Authorization: `Bearer ${box.key}` }, body: {} });
+    } catch {
+      result = undefined;
+    }
+    if (!result || typeof result.cancelled !== 'boolean') {
+      return { ok: false, unpublished: true, message: 'El buzón todavía no acepta cancelar: el pedido sigue esperando ahí.' };
+    }
+    if (result.cancelled) return { ok: true, message: 'Cancelado en el buzón del bot' };
+    return { ok: true, taken: true, message: 'La PC ya lo había tomado del buzón' };
+  }
+
+  async function removeFromArr(a) {
+    const program = a.source === 'radarr' ? 'Radarr' : 'Sonarr';
+    const results = [];
+    for (const queueId of a.queueIds) {
+      await arr(a.source, `/queue/${queueId}?removeFromClient=true&blocklist=false`, { method: 'DELETE' });
+    }
+    if (a.queueIds.length) results.push({ ok: true, message: `Torrents sacados de qBittorrent: ${a.queueIds.length}` });
+    if (a.whole) {
+      const kind = a.source === 'radarr' ? 'movie' : 'series';
+      await arr(a.source, `/${kind}/${a.id}?deleteFiles=true&addImportExclusion=false`, { method: 'DELETE' });
+      results.push({ ok: true, message: `${a.title} borrada de ${program}, con su carpeta` });
+    } else {
+      for (const fileId of a.fileIds) await arr('sonarr', `/episodefile/${fileId}`, { method: 'DELETE' });
+      if (a.unmonitor.length) await arr('sonarr', '/episode/monitor', { method: 'PUT', body: { episodeIds: a.unmonitor, monitored: false } });
+      results.push({ ok: true, message: `Episodios pedidos borrados de ${program}: ${a.fileIds.length}` });
+    }
+    return results;
+  }
+
+  async function refreshJellyfin() {
+    let key;
+    try {
+      key = readFileSync(jellyfinKeyFile, 'utf8').trim();
+    } catch {
+      key = '';
+    }
+    if (!key) return { ok: true, skipped: true, message: 'Jellyfin lo va a notar en su próxima revisión: falta una clave de Jellyfin para pedírselo ya.' };
+    try {
+      await call(`${config.services.jellyfin.url}/Library/Refresh`, { method: 'POST', headers: { 'X-Emby-Token': key } });
+      return { ok: true, message: 'Jellyfin está revisando la biblioteca' };
+    } catch (error) {
+      return { ok: false, message: `Jellyfin no pudo revisar la biblioteca: ${error.message}` };
+    }
+  }
+
+  /** Paso por paso. Si uno falla, se corta ahí y el resultado dice qué se hizo y qué no. */
+  async function execute(plan) {
+    const results = [];
+    const step = async (failureLabel, run) => {
+      try {
+        await run();
+        return true;
+      } catch (error) {
+        results.push({ ok: false, message: `${failureLabel}: ${error.message || 'falló'}. Lo anterior ya quedó hecho; lo que sigue, no.` });
+        return false;
+      }
+    };
+    let arrPart = plan.arr;
+    if (plan.mailbox) {
+      const result = await cancelInMailbox(plan.mailbox);
+      results.push(result);
+      if (result.unpublished && !arrPart) return results;
+      // Si la PC ya lo tomó, puede estar llegando a Radarr o Sonarr: se vuelve a mirar unos segundos después.
+      if (result.taken && !arrPart) {
+        for (let attempt = 0; attempt < takenRetries && !arrPart; attempt++) {
+          await sleep(5000);
+          const ref = { kind: plan.kind, tmdbId: plan.mailbox.tmdbId };
+          const part = plan.kind === 'tv' ? await seriesPart(ref, false) : await moviePart(ref, false);
+          if (part?.skipped) results.push({ ok: true, message: part.skipped });
+          if (part && !part.skipped) arrPart = part;
+          if (part?.skipped) break;
+        }
+        if (!arrPart && !results.some((result) => result.message?.includes('no se toca'))) {
+          results.push({ ok: false, message: 'La PC lo tomó pero todavía no aparece en Radarr ni en Sonarr. Probá borrarlo de nuevo en un rato.' });
+        }
+      }
+    }
+    if (plan.seerr) {
+      const done = await step('No se pudo borrar el pedido en Seerr', () => seerr(`/request/${plan.seerr.id}`, { method: 'DELETE' }));
+      if (!done) return results;
+      results.push({ ok: true, message: 'Pedido borrado en Seerr' });
+    }
+    if (arrPart) {
+      const program = arrPart.source === 'radarr' ? 'Radarr' : 'Sonarr';
+      const done = await step(`No se pudo terminar en ${program}`, async () => results.push(...(await removeFromArr(arrPart))));
+      if (!done) return results;
+      results.push(await refreshJellyfin());
+    }
+    return results;
+  }
+
+  return {
+    /** Después de verificar la contraseña: qué se va a borrar y un código para confirmarlo, que vence en 3 minutos. */
+    async plan(id) {
+      try {
+        const plan = await buildPlan(id);
+        const token = randomBytes(24).toString('hex');
+        for (const [key, entry] of confirmations) if (now() > entry.expires) confirmations.delete(key);
+        confirmations.set(token, { id, fingerprint: fingerprint(plan), expires: now() + CONFIRM_MS });
+        return [200, { token, plan: describe(plan) }];
+      } catch (error) {
+        if (error instanceof NotARequest) return [409, { error: error.message }];
+        return [502, { error: `No se pudo revisar el pedido: ${error.message || 'falló una consulta'}` }];
+      }
+    },
+
+    /** Borra, solo si nada cambió desde la confirmación. Devuelve el resultado de cada paso. */
+    async remove(id, { token } = {}) {
+      const entry = typeof token === 'string' ? confirmations.get(token) : null;
+      if (!entry || entry.id !== id || now() > entry.expires) return [403, { error: 'La confirmación venció. Empezá de nuevo.' }];
+      confirmations.delete(token);
+      if (busy) return [409, { error: 'Ya se está borrando otro pedido' }];
+      busy = true;
+      try {
+        const plan = await buildPlan(id);
+        if (fingerprint(plan) !== entry.fingerprint) return [409, { error: 'Algo cambió desde que confirmaste. Revisalo de nuevo.' }];
+        const results = await execute(plan);
+        return [200, { ok: results.every((result) => result.ok), results }];
+      } catch (error) {
+        if (error instanceof NotARequest) return [409, { error: error.message }];
+        return [502, { error: `Se cortó a mitad del borrado: ${error.message || 'falló una consulta'}. Revisá el pedido antes de reintentar.` }];
+      } finally {
+        busy = false;
+      }
+    },
+  };
+}
+
 // --- Servidor HTTP ---
 
 function sendJson(res, status, body) {
@@ -1190,7 +1584,7 @@ function readJsonBody(req, limit = 16 * 1024) {
   });
 }
 
-export function createApp(collect, { allowedOrigins, act = null, auth = null, downloads = null }) {
+export function createApp(collect, { allowedOrigins, act = null, auth = null, downloads = null, requests = null }) {
   let inFlight = null;
 
   // Dos pedidos simultáneos comparten la misma consulta a los programas.
@@ -1246,6 +1640,20 @@ export function createApp(collect, { allowedOrigins, act = null, auth = null, do
         remoteAddress: req.socket.remoteAddress,
       });
       return sendJson(res, status, status === 404 ? { error: 'No existe' } : body);
+    }
+
+    // Borrar un pedido: primero la contraseña del panel y el plan, después el borrado con el código de confirmación.
+    const requestRoute = /^\/api\/requests\/([a-z0-9-]{1,40})\/(plan|delete)$/.exec(pathname);
+    if (requestRoute && requests && auth) {
+      if (!post) return sendJson(res, 405, { error: 'Solo POST' });
+      if (origin === undefined) return sendJson(res, 403, { error: 'Origen no permitido' });
+      const body = await readJsonBody(req);
+      if (requestRoute[2] === 'plan') {
+        const [status, verdict] = auth.verifyAdmin(body);
+        if (status !== 200) return sendJson(res, status, verdict);
+        return sendJson(res, ...(await requests.plan(requestRoute[1])));
+      }
+      return sendJson(res, ...(await requests.remove(requestRoute[1], body)));
     }
 
     const downloadsRoute = /^\/api\/downloads\/([a-z]+)$/.exec(pathname);
@@ -1316,6 +1724,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     act: createController(DEFAULT_CONFIG),
     auth: createAuth(),
     downloads: createDownloadControl(DEFAULT_CONFIG),
+    requests: createRequestRemover(DEFAULT_CONFIG),
   });
   try {
     await listen(server, HOST, PORT);
