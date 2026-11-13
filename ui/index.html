@@ -751,6 +751,39 @@
         color: #fff;
       }
 
+      /* --- Jellyfin --- */
+      .jf-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px 12px;
+        padding: 9px 0;
+        border-top: 1px solid var(--border-soft);
+      }
+
+      .card h3 + .jf-row {
+        margin-top: 6px;
+        border-top: 0;
+      }
+
+      .jf-row > div:first-child {
+        flex: 1 1 200px;
+        min-width: 0;
+      }
+
+      .jf-row .bar {
+        flex: 1 1 100%;
+      }
+
+      .jf-row p {
+        margin: 2px 0 0;
+      }
+
+      .jf-date {
+        flex: none;
+      }
+
       .download-head {
         display: flex;
         align-items: flex-start;
@@ -2291,7 +2324,8 @@
         #downloads > .stack,
         #requests > .stack,
         #network > .stack,
-        #devices > .stack {
+        #devices > .stack,
+        #jellyfin > .stack {
           grid-template-columns: minmax(0, 1fr);
         }
 
@@ -2592,6 +2626,7 @@
         <button type="button" class="nav-item" data-view="requests"><span data-icon="clapperboard"></span>Requests</button>
         <button type="button" class="nav-item secondary" data-view="storage"><span data-icon="database"></span>Storage</button>
         <button type="button" class="nav-item secondary" data-view="network"><span data-icon="wifi"></span>Network</button>
+        <button type="button" class="nav-item secondary" data-view="jellyfin"><span data-icon="tv"></span>Jellyfin</button>
         <button type="button" class="nav-item secondary" data-view="settings"><span data-icon="settings"></span>Settings</button>
         <!-- Solo en celular: la barra de abajo muestra 4 secciones y "Más" abre las otras. -->
         <button type="button" id="nav-more" class="nav-more" aria-haspopup="true" aria-expanded="false" aria-controls="more-menu"><span data-icon="ellipsis"></span>Más</button>
@@ -2599,6 +2634,7 @@
       <div id="more-menu" class="more-menu" hidden>
         <button type="button" class="nav-item" data-view="storage"><span data-icon="database"></span>Storage</button>
         <button type="button" class="nav-item" data-view="network"><span data-icon="wifi"></span>Network</button>
+        <button type="button" class="nav-item" data-view="jellyfin"><span data-icon="tv"></span>Jellyfin</button>
         <button type="button" class="nav-item" data-view="settings"><span data-icon="settings"></span>Settings</button>
       </div>
       <div class="side-art">
@@ -2704,6 +2740,13 @@
             <div id="network"></div>
           </section>
 
+          <section id="view-jellyfin" class="view" hidden>
+            <div class="view-head">
+              <div class="view-title"><h2>Jellyfin</h2><span id="jellyfin-meta" class="muted small"></span></div>
+            </div>
+            <div id="jellyfin"></div>
+          </section>
+
           <section id="view-settings" class="view" hidden>
             <div class="view-head">
               <div class="view-title"><h2>Settings</h2></div>
@@ -2752,7 +2795,7 @@
       <div class="news-dialog-head">
         <span class="news-badge delete-badge"><span data-icon="trash" data-size="20"></span></span>
         <div>
-          <p class="news-kicker">Borrar pedido</p>
+          <p id="delete-kicker" class="news-kicker">Borrar pedido</p>
           <h2 id="delete-title"></h2>
         </div>
       </div>
@@ -2923,6 +2966,190 @@
         return response.json();
       }
 
+      // --- Jellyfin ---
+      // Acceso rápido, dispositivos, quién está mirando y actividad. Lo lee la PC con una clave de API de Jellyfin que
+      // nunca llega a esta pantalla. Autorizar un código y desconectar un dispositivo piden la contraseña del panel.
+      let jellyfinData = null;
+      let jellyfinLoading = false;
+      let jellyfinQuick = null;
+
+      async function loadJellyfin() {
+        if (jellyfinLoading || !pcHost) return;
+        jellyfinLoading = true;
+        try {
+          const response = await apiRequest(pcHost, '/api/jellyfin', { timeoutMs: 20000 });
+          jellyfinData = response.ok ? await response.json() : { configured: true, error: 'La PC respondió con un error' };
+        } catch {
+          jellyfinData = { configured: true, error: 'No llego a la PC' };
+        } finally {
+          jellyfinLoading = false;
+        }
+        renderJellyfin();
+      }
+
+      /** Ventana con la contraseña del panel antes de algo delicado. `send(password)` devuelve { status, json }. */
+      function askAdmin({ kicker, title, intro, confirmLabel, danger = false, send }) {
+        const dialog = $('delete-dialog');
+        $('delete-kicker').textContent = kicker;
+        $('delete-title').textContent = title;
+        const password = field('Contraseña del panel', 'password');
+        password.input.autocomplete = 'current-password';
+        const error = el('p', 'action-result failed');
+        const confirm = actionButton(confirmLabel, async () => {
+          await runForm(confirm, error, async () => {
+            const { status, json } = await send(password.input.value);
+            if (status !== 200) throw new Error(json.error ?? 'No se pudo');
+            dialog.close();
+            notify(json.message ?? 'Listo', 'green');
+            loadJellyfin();
+          }, 'Un momento…');
+        }, !danger);
+        if (danger) confirm.classList.add('danger');
+        password.input.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') confirm.click();
+        });
+        $('delete-body').replaceChildren(el('p', null, intro), password.node, error);
+        $('delete-actions').replaceChildren(actionButton('Cancelar', () => dialog.close()), confirm);
+        dialog.showModal();
+        password.input.focus();
+      }
+
+      const jellyfinDate = (iso) =>
+        iso ? new Date(iso).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : NO_DATA;
+
+      /** Sin clave: cómo crearla. En la PC se guarda desde acá; la clave no se muestra nunca más. */
+      function jellyfinSetupCard() {
+        if (isMobile) {
+          return el('article', 'card', el('h3', null, 'Falta conectar Jellyfin'), el('p', 'muted small', 'Se hace una sola vez desde la app de la PC, en esta misma sección.'));
+        }
+        const key = field('Clave de API', 'password');
+        key.input.autocomplete = 'off';
+        const error = el('p', 'action-result failed');
+        const save = actionButton('Guardar', async () => {
+          await runForm(save, error, async () => {
+            const response = await apiRequest(pcHost, '/api/setup/jellyfin-key', { method: 'POST', body: { key: key.input.value } });
+            const json = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(json.error ?? 'No se pudo guardar');
+            notify('Jellyfin quedó conectado', 'green');
+            loadJellyfin();
+          }, 'Probando…');
+        }, true);
+        return el(
+          'article',
+          'card',
+          el('h3', null, 'Conectar Jellyfin'),
+          el('p', 'muted small', 'Hace falta una clave de API de Jellyfin, una sola vez:'),
+          el(
+            'ol',
+            'delete-steps muted small',
+            el('li', null, 'En Jellyfin, abrí el Panel de control → Claves de API (API Keys) y tocá "+".'),
+            el('li', null, 'Ponele de nombre ' + PRODUCT_NAME + ' y copiá la clave que se crea.'),
+            el('li', null, 'Pegala acá y tocá Guardar. Se prueba con Jellyfin y queda guardada solo en esta PC.'),
+          ),
+          key.node,
+          el('div', 'row-actions', save),
+          error,
+        );
+      }
+
+      /** Se arma una sola vez, para no pisar lo que se está escribiendo en cada actualización. */
+      function jellyfinQuickCard() {
+        if (!jellyfinQuick) {
+          const code = field('Código que muestra la tele', 'text');
+          code.input.inputMode = 'numeric';
+          code.input.maxLength = 7;
+          code.input.placeholder = '123456';
+          const user = el('select', 'button');
+          const authorize = actionButton('Autorizar', () => {
+            const value = code.input.value.replace(/\s+/g, '');
+            const chosen = user.selectedOptions[0]?.textContent ?? '';
+            askAdmin({
+              kicker: 'Acceso rápido de Jellyfin',
+              title: 'Código ' + value,
+              intro: `El dispositivo que muestra ese código va a entrar a Jellyfin como ${chosen}. Para seguir, escribí la contraseña del panel.`,
+              confirmLabel: 'Autorizar',
+              send: (password) => postJson('/api/jellyfin/quick-connect', { password, code: value, userId: user.value }),
+            });
+          }, true);
+          const note = el('p', 'muted small');
+          jellyfinQuick = { node: el('article', 'card', el('h3', null, 'Acceso rápido'), note, code.node, el('label', 'field', 'Entra como', user), el('div', 'row-actions', authorize)), user, note, authorize, code };
+        }
+        const { user, note, authorize, code } = jellyfinQuick;
+        const data = jellyfinData;
+        if (document.activeElement !== user) {
+          const selected = user.value;
+          user.replaceChildren(...data.users.map((item) => Object.assign(el('option', null, item.name), { value: item.id })));
+          if (selected) user.value = selected;
+        }
+        note.textContent = data.quickConnect
+          ? 'En la tele, elegí "Acceso rápido" (Quick Connect) al iniciar sesión, escribí acá el código de 6 números y elegí con qué usuario entra.'
+          : 'El acceso rápido está apagado en Jellyfin. Activalo en el Panel de control → General → "Habilitar acceso rápido".';
+        authorize.disabled = !data.quickConnect || !data.users.length;
+        code.input.disabled = !data.quickConnect;
+        return jellyfinQuick.node;
+      }
+
+      function renderJellyfin() {
+        const data = jellyfinData;
+        if (!data) return;
+        if (!data.configured) {
+          $('jellyfin-meta').textContent = 'Sin conectar';
+          $('jellyfin').replaceChildren(jellyfinSetupCard());
+          return;
+        }
+        if (data.error) {
+          $('jellyfin-meta').textContent = 'Sin datos';
+          $('jellyfin').replaceChildren(issueList([data.error], true));
+          return;
+        }
+        $('jellyfin-meta').textContent = data.playing.length ? `${data.playing.length} mirando ahora` : 'Nadie mirando';
+        const playing = data.playing.length
+          ? data.playing.map((session) =>
+              el(
+                'div',
+                'jf-row',
+                el('div', null, el('strong', null, session.title), el('p', 'muted small', [session.user, session.device, session.paused ? 'en pausa' : null].filter(Boolean).join(' · '))),
+                session.progress !== null ? progressBar(session.progress) : null,
+              ),
+            )
+          : [el('p', 'muted small', 'Nadie está mirando ahora.')];
+        const devices = data.devices.map((device) => {
+          const remove = device.own
+            ? el('span', 'muted small', 'Esta app')
+            : actionButton('Desconectar', () =>
+                askAdmin({
+                  kicker: 'Desconectar dispositivo',
+                  title: device.name,
+                  intro: `${device.name} va a salir de Jellyfin y para volver va a tener que iniciar sesión. Para seguir, escribí la contraseña del panel.`,
+                  confirmLabel: 'Desconectar',
+                  danger: true,
+                  send: (password) => postJson('/api/jellyfin/devices/' + encodeURIComponent(device.id) + '/remove', { password }),
+                }),
+              );
+          return el(
+            'div',
+            'jf-row',
+            el('div', null, el('strong', null, device.name), el('p', 'muted small', [device.app, device.user, device.lastActivity ? timeAgo(device.lastActivity) : null].filter(Boolean).join(' · '))),
+            remove,
+          );
+        });
+        const activity = data.activity.length
+          ? data.activity.map((entry) =>
+              el('div', 'jf-row', el('div', null, el('span', null, entry.text), entry.detail ? el('p', 'muted small', entry.detail) : null), el('span', 'muted small jf-date', jellyfinDate(entry.date))),
+            )
+          : [el('p', 'muted small', 'Sin actividad reciente.')];
+        $('jellyfin').replaceChildren(
+          el(
+            'div',
+            'stack jf-grid',
+            jellyfinQuickCard(),
+            el('article', 'card', el('h3', null, 'Ahora mirando'), ...playing),
+            el('article', 'card', el('h3', null, `Dispositivos (${data.devices.length})`), ...devices),
+            el('article', 'card', el('h3', null, 'Actividad'), ...activity),
+          ),
+        );
+      }
+
       // --- Borrar pedidos ---
       // La única excepción a no tocar la biblioteca (ver el backend). La contraseña del panel se verifica en la PC antes
       // de mostrar nada, y la confirmación dice exactamente qué se borra, archivos incluidos. Qué es un pedido lo decide
@@ -2951,6 +3178,7 @@
         const actions = $('delete-actions');
         const close = () => dialog.close();
         const route = '/api/requests/' + encodeURIComponent(id);
+        $('delete-kicker').textContent = 'Borrar pedido';
         $('delete-title').textContent = title;
 
         // 1. La contraseña del panel.
@@ -3976,7 +4204,8 @@
         "hard-drive": "<path d=\"M10 16h.01\"/><path d=\"M2.212 11.577a2 2 0 0 0-.212.896V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5.527a2 2 0 0 0-.212-.896L18.55 5.11A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z\"/><path d=\"M21.946 12.013H2.054\"/><path d=\"M6 16h.01\"/>",
         "menu": "<path d=\"M4 5h16\"/><path d=\"M4 12h16\"/><path d=\"M4 19h16\"/>",
         "ellipsis": "<circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/>",
-        "trash": "<path d=\"M3 6h18\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/><path d=\"M10 11v6\"/><path d=\"M14 11v6\"/>",
+        "tv": "<rect width=\"20\" height=\"15\" x=\"2\" y=\"7\" rx=\"2\" ry=\"2\"/><polyline points=\"17 2 12 7 7 2\"/>",
+        "trash":"<path d=\"M3 6h18\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/><path d=\"M10 11v6\"/><path d=\"M14 11v6\"/>",
       };
 
       /** Logos de cada programa, de walkxcode/dashboard-icons, como data URI. */
@@ -4699,7 +4928,7 @@
       }
 
       // --- Navegación ---
-      const MORE_VIEWS = ['storage', 'network', 'settings'];
+      const MORE_VIEWS = ['storage', 'network', 'jellyfin', 'settings'];
 
       function showView(name) {
         for (const view of document.querySelectorAll('.view')) view.hidden = view.id !== `view-${name}`;
@@ -4710,6 +4939,7 @@
         if (MORE_VIEWS.includes(name)) $('nav-more').setAttribute('aria-current', 'page');
         else $('nav-more').removeAttribute('aria-current');
         document.body.dataset.view = name;
+        if (name === 'jellyfin') loadJellyfin();
         setDrawer(false);
         setMoreMenu(false);
         window.scrollTo(0, 0);
@@ -5401,6 +5631,7 @@
           if (isMobile) await rememberNetwork(lastStatus.network);
           render(lastStatus);
           hideSplash();
+          if (document.body.dataset.view === 'jellyfin') loadJellyfin();
           if (isMobile) renderConnection();
           $('banner').hidden = true;
           $('content').classList.remove('stale');

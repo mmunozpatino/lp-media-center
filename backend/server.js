@@ -1687,6 +1687,157 @@ export function createImporter(config, { fetchImpl = fetch } = {}) {
   };
 }
 
+// --- Jellyfin: acceso rápido, dispositivos, quién está mirando y actividad ---
+// Necesita una clave de API de Jellyfin (Panel → Claves de API) en ~/.lp-media-center/jellyfin.key. Es de administrador:
+// solo viaja en cabeceras hacia 127.0.0.1 y nunca sale en una respuesta ni en un registro. Autorizar un código de acceso
+// rápido y desconectar un dispositivo piden además la contraseña del panel (en createApp).
+
+const JELLYFIN_CLIENT = 'LP Cine Vault';
+const QUICK_CODE = /^\d{6}$/;
+const JELLYFIN_ID = /^[a-f0-9]{32}$/i;
+
+export function createJellyfin(config, { fetchImpl = fetch, keyFile = JELLYFIN_KEY_FILE } = {}) {
+  const base = config.services.jellyfin.url;
+
+  function readKey() {
+    try {
+      return readFileSync(keyFile, 'utf8').trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function call(pathname, { method = 'GET', key = readKey() } = {}) {
+    if (!key) throw new ProbeError('error', 'Falta la clave de Jellyfin');
+    let response;
+    try {
+      response = await fetchImpl(`${base}${pathname}`, {
+        method,
+        redirect: 'manual',
+        headers: { Authorization: `MediaBrowser Token="${key}"` },
+        signal: AbortSignal.timeout(config.httpTimeoutMs * 2),
+      });
+    } catch {
+      throw new ProbeError('down', 'Jellyfin no responde');
+    }
+    if (response.status === 401 || response.status === 403) throw new ProbeError('error', 'Jellyfin rechazó la clave');
+    if (!response.ok) throw new ProbeError('error', `Jellyfin respondió HTTP ${response.status}`);
+    const text = await response.text();
+    try {
+      return text ? JSON.parse(text) : null;
+    } catch {
+      return text;
+    }
+  }
+
+  // El dispositivo que usara esta app, si Jellyfin lo registrara: nunca se ofrece desconectarlo.
+  const isOwnDevice = (device) => device.AppName === JELLYFIN_CLIENT;
+
+  function playing(session, users) {
+    const item = session.NowPlayingItem;
+    const title = item.SeriesName ? `${item.SeriesName} · ${item.Name}` : item.ProductionYear ? `${item.Name} (${item.ProductionYear})` : item.Name;
+    const total = item.RunTimeTicks ?? 0;
+    const position = session.PlayState?.PositionTicks ?? 0;
+    return {
+      user: session.UserName ?? users.get(session.UserId) ?? null,
+      device: session.DeviceName ?? null,
+      app: session.Client ?? null,
+      title: title ?? 'Sin título',
+      progress: total > 0 ? Math.min(1, position / total) : null,
+      paused: Boolean(session.PlayState?.IsPaused),
+    };
+  }
+
+  return {
+    hasKey: () => Boolean(readKey()),
+
+    /** Todo lo que muestra la sección, en una consulta. Sin clave: { configured: false }. */
+    async overview() {
+      if (!readKey()) return [200, { configured: false }];
+      try {
+        const [quick, usersList, devices, sessions, activity] = await Promise.all([
+          call('/QuickConnect/Enabled').catch(() => null),
+          call('/Users'),
+          call('/Devices'),
+          call('/Sessions?activeWithinSeconds=960'),
+          call('/System/ActivityLog/Entries?limit=30'),
+        ]);
+        const users = new Map((Array.isArray(usersList) ? usersList : []).map((user) => [user.Id, user.Name]));
+        return [200, {
+          configured: true,
+          quickConnect: quick === true,
+          users: [...users].map(([id, name]) => ({ id, name })),
+          devices: (devices?.Items ?? []).map((device) => ({
+            id: device.Id,
+            name: device.Name ?? 'Sin nombre',
+            app: [device.AppName, device.AppVersion].filter(Boolean).join(' ') || null,
+            user: device.LastUserName ?? users.get(device.LastUserId) ?? null,
+            lastActivity: device.DateLastActivity ?? null,
+            own: isOwnDevice(device),
+          })).sort((a, b) => String(b.lastActivity).localeCompare(String(a.lastActivity))),
+          playing: (Array.isArray(sessions) ? sessions : []).filter((session) => session.NowPlayingItem).map((session) => playing(session, users)),
+          activity: (activity?.Items ?? []).map((entry) => ({
+            date: entry.Date ?? null,
+            text: entry.Name ?? '',
+            detail: entry.ShortOverview ?? null,
+            user: users.get(entry.UserId) ?? null,
+            severity: entry.Severity ?? null,
+          })),
+        }];
+      } catch (error) {
+        return [200, { configured: true, error: error.message }];
+      }
+    },
+
+    /** Autoriza el código que muestra la tele para un usuario de Jellyfin. */
+    async authorize({ code, userId } = {}) {
+      const clean = typeof code === 'string' ? code.replace(/\s+/g, '') : '';
+      if (!QUICK_CODE.test(clean)) return [400, { error: 'El código tiene 6 números' }];
+      if (typeof userId !== 'string' || !JELLYFIN_ID.test(userId)) return [400, { error: 'Elegí un usuario' }];
+      try {
+        const users = await call('/Users');
+        const user = (Array.isArray(users) ? users : []).find((candidate) => candidate.Id === userId);
+        if (!user) return [400, { error: 'Ese usuario no existe en Jellyfin' }];
+        const ok = await call(`/QuickConnect/Authorize?code=${clean}&userId=${userId}`, { method: 'POST' });
+        if (ok !== true) return [409, { error: 'Jellyfin no aceptó el código. Fijate que no haya vencido.' }];
+        return [200, { ok: true, message: `Listo: el dispositivo entró como ${user.Name}.` }];
+      } catch (error) {
+        const expired = /HTTP 404/.test(error.message);
+        return [expired ? 409 : 502, { error: expired ? 'Ese código no existe o ya venció.' : error.message }];
+      }
+    },
+
+    /** Cierra la sesión de un dispositivo en Jellyfin. Nunca el de esta app. */
+    async removeDevice(id) {
+      if (!JELLYFIN_ID.test(id)) return [404, { error: 'No existe' }];
+      try {
+        const devices = await call('/Devices');
+        const device = (devices?.Items ?? []).find((candidate) => candidate.Id === id);
+        if (!device) return [404, { error: 'Ese dispositivo ya no está' }];
+        if (isOwnDevice(device)) return [409, { error: 'Es el que usa esta app: no se desconecta.' }];
+        await call(`/Devices?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+        return [200, { ok: true, message: `${device.Name ?? 'El dispositivo'} quedó desconectado. Para volver, tiene que iniciar sesión.` }];
+      } catch (error) {
+        return [502, { error: error.message }];
+      }
+    },
+
+    /** Guarda la clave solo si Jellyfin la acepta como de administrador. Nunca la devuelve. */
+    async saveKey({ key } = {}) {
+      const clean = typeof key === 'string' ? key.trim() : '';
+      if (!/^[A-Za-z0-9]{16,128}$/.test(clean)) return [400, { error: 'Eso no parece una clave de API de Jellyfin' }];
+      try {
+        await call('/Devices', { key: clean });
+      } catch (error) {
+        return [400, { error: error.message === 'Jellyfin rechazó la clave' ? 'Jellyfin no aceptó esa clave' : error.message }];
+      }
+      mkdirSync(path.dirname(keyFile), { recursive: true });
+      writeFileSync(keyFile, clean + '\n', { mode: 0o600 });
+      return [200, { ok: true }];
+    },
+  };
+}
+
 // --- Servidor HTTP ---
 
 function sendJson(res, status, body) {
@@ -1740,7 +1891,10 @@ function readJsonBody(req, limit = 16 * 1024) {
   });
 }
 
-export function createApp(collect, { allowedOrigins, act = null, auth = null, downloads = null, requests = null, imports = null }) {
+export function createApp(
+  collect,
+  { allowedOrigins, act = null, auth = null, downloads = null, requests = null, imports = null, jellyfin = null },
+) {
   let inFlight = null;
 
   // Dos pedidos simultáneos comparten la misma consulta a los programas.
@@ -1771,6 +1925,7 @@ export function createApp(collect, { allowedOrigins, act = null, auth = null, do
       if (post && remove) return sendJson(res, ...auth.removeDevice(remove[1]));
       const rename = /^\/api\/setup\/devices\/([a-f0-9]+)\/rename$/.exec(pathname);
       if (post && rename) return sendJson(res, ...auth.renameDevice(rename[1], await readJsonBody(req)));
+      if (post && pathname === '/api/setup/jellyfin-key' && jellyfin) return sendJson(res, ...(await jellyfin.saveKey(await readJsonBody(req))));
       return sendJson(res, 404, { error: 'No existe' });
     }
 
@@ -1810,6 +1965,20 @@ export function createApp(collect, { allowedOrigins, act = null, auth = null, do
         return sendJson(res, ...(await requests.plan(requestRoute[1])));
       }
       return sendJson(res, ...(await requests.remove(requestRoute[1], body)));
+    }
+
+    // Jellyfin: leer con la sesión de siempre; autorizar un código o desconectar, además con la contraseña del panel.
+    if (jellyfin && pathname.startsWith('/api/jellyfin')) {
+      if (req.method === 'GET' && pathname === '/api/jellyfin') return sendJson(res, ...(await jellyfin.overview()));
+      if (!post) return sendJson(res, 405, { error: 'Solo POST' });
+      if (origin === undefined || !auth) return sendJson(res, 403, { error: 'Origen no permitido' });
+      const body = await readJsonBody(req);
+      const [status, verdict] = auth.verifyAdmin(body);
+      if (status !== 200) return sendJson(res, status, verdict);
+      if (pathname === '/api/jellyfin/quick-connect') return sendJson(res, ...(await jellyfin.authorize(body)));
+      const device = /^\/api\/jellyfin\/devices\/([A-Za-z0-9]{1,64})\/remove$/.exec(pathname);
+      if (device) return sendJson(res, ...(await jellyfin.removeDevice(device[1])));
+      return sendJson(res, 404, { error: 'No existe' });
     }
 
     // Importar a mano una descarga trabada: solo desde la app de esta PC, como pidió la usuaria.
@@ -1891,6 +2060,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     downloads: createDownloadControl(DEFAULT_CONFIG),
     requests: createRequestRemover(DEFAULT_CONFIG),
     imports: createImporter(DEFAULT_CONFIG),
+    jellyfin: createJellyfin(DEFAULT_CONFIG),
   });
   try {
     await listen(server, HOST, PORT);

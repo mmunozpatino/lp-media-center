@@ -157,6 +157,19 @@ lee la cola y `/manualimport` y propone los archivos (sin muestras); `/run` mand
 que se pidió la descarga. Solo desde esta PC y con el origen de la app. No borra nada. La revisión se probó contra Radarr real
 con *Obsession*; la importación real no se hizo desde acá: la tiene que hacer la usuaria.
 
+**Jellyfin (vista propia, en "Más" en el celu):** pedido de la usuaria el 2026-11-13. `createJellyfin` en `backend/server.js`,
+tests en `test/jellyfin.test.js`. Usa la clave de API de `~/.lp-media-center/jellyfin.key` (de administrador; solo en cabeceras
+`Authorization: MediaBrowser Token=…` hacia 127.0.0.1, nunca en una respuesta). Sin clave, la vista explica cómo crearla
+(Panel de control → Claves de API) y, en la PC, la guarda con `POST /api/setup/jellyfin-key`, solo si Jellyfin la acepta.
+- `GET /api/jellyfin`: `/QuickConnect/Enabled`, `/Users`, `/Devices`, `/Sessions?activeWithinSeconds=960` (solo lo que se está
+  reproduciendo) y `/System/ActivityLog/Entries?limit=30`.
+- Con la contraseña del panel (`verifyAdmin`) y el origen de la app: `POST /api/jellyfin/quick-connect` (`{ code, userId }` →
+  `/QuickConnect/Authorize?code=&userId=`) y `POST /api/jellyfin/devices/<id>/remove` (`DELETE /Devices?id=`). Nunca se
+  desconecta un dispositivo con `AppName` "LP Cine Vault".
+- **Sin probar en real:** la clave todavía no existe. Que una clave de API autorice para otro usuario con `userId` sale del
+  código de Jellyfin (las claves cuentan como administrador), sin comprobar. Si falla, se dice; no se guardan contraseñas de
+  Jellyfin. Autorizar y desconectar se prueban en real solo si la usuaria lo pide en el momento.
+
 **Pausar descargas:** frena en qBittorrent lo que esté activo y guarda cuáles fueron en `~/.lp-media-center/pausa.json`, para que
 reanudar no arranque lo frenado a mano. Requiere activar en qBittorrent "Omitir autenticación para clientes en localhost"; sin eso,
 el botón explica qué activar.
