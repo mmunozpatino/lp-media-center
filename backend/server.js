@@ -1508,7 +1508,8 @@ export function createRequestRemover(
     }
     if (!key) return { ok: true, skipped: true, message: 'Jellyfin lo va a notar en su próxima revisión: falta una clave de Jellyfin para pedírselo ya.' };
     try {
-      await call(`${config.services.jellyfin.url}/Library/Refresh`, { method: 'POST', headers: { 'X-Emby-Token': key } });
+      // Este Jellyfin no acepta X-Emby-Token ni api_key (EnableLegacyAuthorization=false): solo esta cabecera.
+      await call(`${config.services.jellyfin.url}/Library/Refresh`, { method: 'POST', headers: { Authorization: `MediaBrowser Token="${key}"` } });
       return { ok: true, message: 'Jellyfin está revisando la biblioteca' };
     } catch (error) {
       return { ok: false, message: `Jellyfin no pudo revisar la biblioteca: ${error.message}` };
