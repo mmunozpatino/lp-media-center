@@ -191,6 +191,16 @@ el botón explica qué activar.
 
 **Pantalla:** diseño CineVault (dark cinematic) con barra lateral y vistas Overview, Services, Downloads, Requests, Storage,
 Network y Settings. En celular, servicios de a dos por fila, como pidió la usuaria, sin descripción ni gráfica; descargas, pedidos y red de a uno. La barra de abajo flota y muestra Overview, Services, Downloads, Requests y "Más", que abre Storage, Network y Settings. Fuera de Overview, el estado general queda en una línea. Tema oscuro por defecto, o claro.
+- **Overview del celu (pedido de la usuaria el 2026-11-13):** distinta de la de Windows, que no cambia ni con la ventana angosta.
+  Se decide por la plataforma, no por el ancho: con `isMobile` (Capacitor nativo o `?celular`) se pone la clase `app-android` en
+  `<html>`, y todo el CSS propio cuelga de ella (nunca de una media query de ancho). Arriba siguen las cuatro métricas; en lugar
+  de una tarjeta por servicio hay un resumen (`servicesHealth`: "Todo funcionando" o "2 servicios con problemas: Radarr,
+  Bazarr", con los estados `ok/warning/down/error`) que lleva a Services; después, el acceso rápido de Jellyfin y Network status.
+  Storage, Download activity y Request queue quedan solo en sus vistas. El acceso rápido es el mismo formulario de la vista
+  Jellyfin (`createQuickConnect` y `updateQuickConnect`, una copia en cada lugar); sin clave, con error o con el acceso rápido
+  apagado, muestra el aviso corto. En la home, `/api/jellyfin` se relee como mucho una vez por minuto, y el formulario no se
+  vuelve a insertar en cada actualización para no cerrar el teclado. Probado con datos simulados en Electron (`?celular` a 412
+  y 900 px, y Windows a 1600 y 600 px, idéntica a la versión anterior); sin probar en un celular real ni autorizando un código real.
 
 **Pedidos fuera de Seerr:** el bot de Telegram agrega directo a Radarr o Sonarr. Por eso `requests` suma lo que Radarr
 (`/wanted/missing`) y Sonarr (`/series`) tienen monitoreado, sin archivo y fuera de la cola, con estado `notGrabbed` o

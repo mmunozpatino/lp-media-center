@@ -784,6 +784,70 @@
         flex: none;
       }
 
+      /* --- Overview del celu (solo con la clase app-android, nunca por ancho) --- */
+      .app-android #view-overview > .room-head,
+      .app-android #room {
+        display: none;
+      }
+
+      .app-android #panels {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+      }
+
+      .app-android #panels > .panel {
+        min-height: 0;
+      }
+
+      .app-android .health-wrap {
+        margin-top: var(--gap);
+      }
+
+      .health {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        min-height: 64px;
+        padding: 12px 14px;
+        border: 1px solid color-mix(in srgb, var(--c) 45%, var(--border-soft));
+        border-radius: 14px;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--c) 10%, var(--card-2)), var(--card));
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .health > svg:first-child {
+        flex: none;
+        color: var(--c);
+      }
+
+      .health > svg:last-child {
+        flex: none;
+        color: var(--muted);
+      }
+
+      .health-text {
+        display: grid;
+        flex: 1;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .health-text strong {
+        font-size: 15px;
+      }
+
+      .health-text span {
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+
+      .quick-message.failed {
+        color: var(--red);
+      }
+
       .download-head {
         display: flex;
         align-items: flex-start;
@@ -3060,6 +3124,7 @@
               <span id="monitored" class="count"></span>
             </div>
             <div id="room" class="room"></div>
+            <div id="health" class="health-wrap" hidden></div>
             <div id="panels" class="panels"></div>
           </section>
 
@@ -3206,6 +3271,9 @@
 
       const pageParams = new URLSearchParams(location.search);
       const isMobile = Boolean(window.Capacitor?.isNativePlatform?.()) || pageParams.has('celular');
+      // Lo propio del celu (por ejemplo, su Overview) cuelga de esta clase y no del ancho: la app de Windows con la
+      // ventana angosta tiene que seguir igual.
+      if (isMobile) document.documentElement.classList.add('app-android');
 
       let pcHost = isMobile ? null : '127.0.0.1';
       let mobile = loadMobile();
@@ -3380,6 +3448,10 @@
       let jellyfinData = null;
       let jellyfinLoading = false;
       let jellyfinQuick = null;
+      let homeQuick = null;
+      let jellyfinLoadedAt = 0;
+      // En el Overview del celu se relee a lo sumo una vez por minuto: es la vista que queda abierta.
+      const HOME_JELLYFIN_MS = 60000;
 
       async function loadJellyfin() {
         if (jellyfinLoading || !pcHost) return;
@@ -3391,8 +3463,15 @@
           jellyfinData = { configured: true, error: 'No llego a la PC' };
         } finally {
           jellyfinLoading = false;
+          jellyfinLoadedAt = Date.now();
         }
         renderJellyfin();
+        if (isMobile) homeQuickPanel();
+      }
+
+      /** Overview del celu: trae Jellyfin si nunca se trajo o pasó un minuto. */
+      function loadHomeJellyfin() {
+        if (isMobile && Date.now() - jellyfinLoadedAt >= HOME_JELLYFIN_MS) loadJellyfin();
       }
 
       /** El ícono de la ventana: rojo para lo que borra o desconecta, el violeta de siempre para lo que da acceso. */
@@ -3471,30 +3550,34 @@
         );
       }
 
-      /** Se arma una sola vez, para no pisar lo que se está escribiendo en cada actualización. */
-      function jellyfinQuickCard() {
-        if (!jellyfinQuick) {
-          const code = field('Código que muestra la tele', 'text');
-          code.input.inputMode = 'numeric';
-          code.input.maxLength = 7;
-          code.input.placeholder = '123456';
-          const user = el('select', 'button');
-          const authorize = actionButton('Autorizar', () => {
-            const value = code.input.value.replace(/\s+/g, '');
-            const chosen = user.selectedOptions[0]?.textContent ?? '';
-            askAdmin({
-              kicker: 'Acceso rápido de Jellyfin',
-              title: 'Código ' + value,
-              intro: `El dispositivo que muestra ese código va a entrar a Jellyfin como ${chosen}. Para seguir, escribí la contraseña de administrador de ${PRODUCT_NAME}.`,
-              confirmLabel: 'Autorizar',
-              send: (password) => postJson('/api/jellyfin/quick-connect', { password, code: value, userId: user.value }),
-            });
-          }, true);
-          const note = el('p', 'muted small');
-          jellyfinQuick = { node: el('article', 'card', el('h3', null, 'Acceso rápido'), note, code.node, el('label', 'field', 'Entra como', user), el('div', 'row-actions', authorize)), user, note, authorize, code };
-        }
-        const { user, note, authorize, code } = jellyfinQuick;
-        const data = jellyfinData;
+      /**
+       * Formulario del acceso rápido (código + usuario, con la contraseña de administrador). Lo usan la vista Jellyfin y
+       * el Overview del celu, cada uno con su copia. Se arma una sola vez, para no pisar lo que se está escribiendo.
+       */
+      function createQuickConnect() {
+        const code = field('Código que muestra la tele', 'text');
+        code.input.inputMode = 'numeric';
+        code.input.maxLength = 7;
+        code.input.placeholder = '123456';
+        const user = el('select', 'button');
+        const authorize = actionButton('Autorizar', () => {
+          const value = code.input.value.replace(/\s+/g, '');
+          const chosen = user.selectedOptions[0]?.textContent ?? '';
+          askAdmin({
+            kicker: 'Acceso rápido de Jellyfin',
+            title: 'Código ' + value,
+            intro: `El dispositivo que muestra ese código va a entrar a Jellyfin como ${chosen}. Para seguir, escribí la contraseña de administrador de ${PRODUCT_NAME}.`,
+            confirmLabel: 'Autorizar',
+            send: (password) => postJson('/api/jellyfin/quick-connect', { password, code: value, userId: user.value }),
+          });
+        }, true);
+        const note = el('p', 'muted small');
+        return { note, fields: [code.node, el('label', 'field', 'Entra como', user), el('div', 'row-actions', authorize)], user, authorize, code };
+      }
+
+      /** Con datos de Jellyfin: usuarios, aviso y si se puede autorizar. */
+      function updateQuickConnect(quick, data) {
+        const { user, note, authorize, code } = quick;
         if (document.activeElement !== user) {
           const selected = user.value;
           user.replaceChildren(...data.users.map((item) => Object.assign(el('option', null, item.name), { value: item.id })));
@@ -3505,7 +3588,36 @@
           : 'El acceso rápido está apagado en Jellyfin. Activalo en el Panel de control → General → "Habilitar acceso rápido".';
         authorize.disabled = !data.quickConnect || !data.users.length;
         code.input.disabled = !data.quickConnect;
+      }
+
+      function jellyfinQuickCard() {
+        if (!jellyfinQuick) {
+          jellyfinQuick = createQuickConnect();
+          jellyfinQuick.node = el('article', 'card', el('h3', null, 'Acceso rápido'), jellyfinQuick.note, ...jellyfinQuick.fields);
+        }
+        updateQuickConnect(jellyfinQuick, jellyfinData);
         return jellyfinQuick.node;
+      }
+
+      /** Overview del celu: el mismo acceso rápido. Sin clave, con error o cargando, solo un aviso corto. */
+      function homeQuickPanel() {
+        if (!homeQuick) {
+          homeQuick = createQuickConnect();
+          homeQuick.message = el('p', 'muted small quick-message');
+          homeQuick.node = panel('tv', 'ACCESO RÁPIDO DE JELLYFIN', null, homeQuick.note, ...homeQuick.fields, homeQuick.message);
+        }
+        const data = jellyfinData;
+        let message = null;
+        if (!data) message = 'Cargando Jellyfin…';
+        else if (!data.configured) message = 'Falta conectar Jellyfin. Se hace una sola vez desde la app de la PC, en la sección Jellyfin.';
+        else if (data.error) message = data.error;
+        homeQuick.message.textContent = message ?? '';
+        homeQuick.message.classList.toggle('failed', Boolean(data?.error));
+        homeQuick.message.hidden = !message;
+        homeQuick.note.hidden = Boolean(message);
+        for (const node of homeQuick.fields) node.hidden = Boolean(message);
+        if (!message) updateQuickConnect(homeQuick, data);
+        return homeQuick.node;
       }
 
       function renderJellyfin() {
@@ -4269,6 +4381,21 @@
         if (failing) pieces.push(failing === 1 ? '1 sin responder o sin datos' : `${failing} sin responder o sin datos`);
         if (warning) pieces.push(warning === 1 ? '1 con avisos' : `${warning} con avisos`);
         return `${count('ok')} de ${parts.length} funcionan bien · ${pieces.join(' · ')}`;
+      }
+
+      /** Resumen de los servicios para el Overview del celu: todo bien, o cuáles tienen problemas y cuál. */
+      function servicesHealth(parts) {
+        if (!parts.length) return { level: 'error', title: 'Sin datos de los servicios', text: 'La PC no informó ningún servicio' };
+        const problems = parts.filter((part) => part.state !== 'ok');
+        if (!problems.length) {
+          return { level: 'ok', title: 'Todo funcionando', text: `Los ${parts.length} servicios responden bien` };
+        }
+        const names = problems.map((part) => part.name).join(', ');
+        return {
+          level: problems.some((part) => part.state === 'down') ? 'down' : 'warning',
+          title: problems.length === 1 ? `1 servicio con problemas: ${names}` : `${problems.length} servicios con problemas: ${names}`,
+          text: problems.map((part) => `${part.name}: ${stateLabel(part.state).toLowerCase()}`).join(' · '),
+        };
       }
 
       function downloadsMeta(downloads) {
@@ -5075,8 +5202,45 @@
         );
       }
 
+      const HEALTH_COLORS = { ok: 'green', warning: 'yellow', error: 'yellow', down: 'red' };
+
+      /** Celular: un solo renglón con el estado de los servicios, en lugar de una tarjeta por servicio. */
+      function healthCard(parts) {
+        const health = servicesHealth(parts);
+        const card = el(
+          'button',
+          `health health-${health.level}`,
+          icon(health.level === 'ok' ? 'circle-check' : 'server', 26),
+          el('span', 'health-text', el('strong', null, health.title), el('span', null, health.text)),
+          icon('arrow-right', 18),
+        );
+        card.type = 'button';
+        card.title = 'Ver los servicios';
+        tinted(card, HEALTH_COLORS[health.level]);
+        card.addEventListener('click', () => showView('services'));
+        return card;
+      }
+
+      /**
+       * Overview del celu: resumen de servicios, acceso rápido de Jellyfin y red. Storage, descargas y pedidos quedan
+       * en sus vistas. El acceso rápido no se vuelve a insertar en cada actualización, para no cerrar el teclado.
+       */
+      function renderMobileOverview(status) {
+        $('health').hidden = false;
+        $('health').replaceChildren(healthCard(status.parts));
+        const quick = homeQuickPanel();
+        const network = networkPanel(status);
+        const panels = $('panels');
+        if (panels.firstChild === quick && panels.children.length === 2) panels.lastChild.replaceWith(network);
+        else panels.replaceChildren(quick, network);
+      }
+
       function renderOverview(status) {
         renderMetrics(status);
+        if (isMobile) {
+          renderMobileOverview(status);
+          return;
+        }
         $('monitored').textContent = servicesMonitored(status.parts);
         $('room').replaceChildren(...status.parts.map(serviceTile));
         $('panels').replaceChildren(
@@ -5407,6 +5571,7 @@
         document.body.dataset.view = name;
         if (name === 'jellyfin') loadJellyfin();
         if (name === 'devices' && !isMobile) loadDevices();
+        if (name === 'overview') loadHomeJellyfin();
         setDrawer(false);
         setMoreMenu(false);
         window.scrollTo(0, 0);
@@ -6224,6 +6389,7 @@
           render(lastStatus);
           hideSplash();
           if (document.body.dataset.view === 'jellyfin') loadJellyfin();
+          if (document.body.dataset.view === 'overview') loadHomeJellyfin();
           if (isMobile) renderConnection();
           $('banner').hidden = true;
           $('content').classList.remove('stale');
