@@ -776,8 +776,11 @@ export function createCollector(config, { run = runCommand, lanIp = detectLanIp,
 const QBITTORRENT_EXE = 'C:\\Program Files\\qBittorrent\\qbittorrent.exe';
 const JELLYFIN_TRAY_EXE = 'C:\\Program Files\\Jellyfin\\Server\\jellyfin-windows-tray\\Jellyfin.Windows.Tray.exe';
 
-const stopNodeProcess = (pathPart) =>
-  `Get-CimInstance Win32_Process -Filter 'Name=''node.exe''' | Where-Object { $_.CommandLine -like '*${pathPart}*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`;
+// Frena los node.exe cuya línea de comando contiene alguna de estas rutas fijas (una o varias).
+const stopNodeProcess = (pathParts) => {
+  const match = [pathParts].flat().map((part) => `$_.CommandLine -like '*${part}*'`).join(' -or ');
+  return `Get-CimInstance Win32_Process -Filter 'Name=''node.exe''' | Where-Object { ${match} } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`;
+};
 
 // Pide cerrar qBittorrent, y solo lo fuerza si sigue abierto: puede estar configurado para ir a la bandeja.
 const STOP_QBITTORRENT =
@@ -864,7 +867,8 @@ const CONTROLS = {
   seerr: taskControl('Seerr', '\\seerr\\node\\node.exe', 'No se podrán hacer pedidos hasta que lo levantes.'),
   bot: taskControl(
     'Pelis Bot Agent',
-    '\\pelis-bot\\agent\\agent.js',
+    // Desde el 2026-11-13 el bot está en su propio repo, media-bot; la ruta vieja queda por si otra PC la usa.
+    ['\\media-bot\\agent\\agent.js', '\\pelis-bot\\agent\\agent.js'],
     'El bot de Telegram deja de atender pedidos hasta que lo levantes.',
   ),
 };

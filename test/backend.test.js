@@ -562,7 +562,9 @@ describe('frenar y levantar', () => {
     const act = createController(config, options(state));
     const stopped = await act('bot', 'stop');
     assert.equal(stopped.ok, true);
-    assert.match(state.calls[0].at(-1), /\\pelis-bot\\agent\\agent\.js/);
+    // El bot vive en el repo media-bot; la ruta vieja de pelis-bot sigue valiendo, y ningún otro agent.js.
+    assert.match(state.calls[0].at(-1), /-like '\*\\media-bot\\agent\\agent\.js\*' -or \$_\.CommandLine -like '\*\\pelis-bot\\agent\\agent\.js\*'/);
+    assert.doesNotMatch(state.calls[0].at(-1), /-like '\*agent\.js\*'/);
     assert.match(state.calls[0].at(-1), /Stop-Process/);
     const started = await act('bot', 'start');
     assert.equal(started.ok, true);
