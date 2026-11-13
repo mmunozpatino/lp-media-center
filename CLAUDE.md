@@ -8,14 +8,14 @@ App de administración del servidor casero de películas y series. Se instala en
 muestra el estado de cada programa, qué se está bajando y da acceso a Seerr. Este proyecto se
 conversa en español.
 
-El servidor y el bot de Telegram se documentan en `C:\Develop\pelis-bot\CLAUDE.md`. Este repo no los
+El servidor y el bot de Telegram se documentan en `C:\Develop\Media Center\pelis-bot\CLAUDE.md`. Este repo no los
 reemplaza. Estado al 2026-11-06: instalada en esta PC, con backend abierto a la LAN y Tailscale tras login y emparejamiento. APK de prueba generado y probado en emulador, todavía sin probar en un celular real.
 
 **Nunca guardes acá tokens, claves ni contraseñas.** No pidas al usuario que los pegue en el chat:
 indicale qué dato cargar y en qué pantalla o terminal.
 
 ## Comandos
-Desde `C:\Develop\lp-media-center`, con Node 22 o más nuevo:
+Desde `C:\Develop\Media Center\lp-media-center`, con Node 22 o más nuevo:
 
 | Comando | Qué hace |
 |---|---|
