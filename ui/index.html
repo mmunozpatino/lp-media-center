@@ -2793,7 +2793,7 @@
 
     <dialog id="delete-dialog" class="news-dialog delete-dialog" aria-labelledby="delete-title">
       <div class="news-dialog-head">
-        <span class="news-badge delete-badge"><span data-icon="trash" data-size="20"></span></span>
+        <span id="delete-badge" class="news-badge delete-badge"><span data-icon="trash" data-size="20"></span></span>
         <div>
           <p id="delete-kicker" class="news-kicker">Borrar pedido</p>
           <h2 id="delete-title"></h2>
@@ -2987,9 +2987,20 @@
         renderJellyfin();
       }
 
-      /** Ventana con la contraseña del panel antes de algo delicado. `send(password)` devuelve { status, json }. */
-      function askAdmin({ kicker, title, intro, confirmLabel, danger = false, send }) {
+      /** El ícono de la ventana: rojo para lo que borra o desconecta, el violeta de siempre para lo que da acceso. */
+      function setDialogBadge(name, danger) {
+        const badge = $('delete-badge');
+        badge.className = danger ? 'news-badge delete-badge' : 'news-badge';
+        badge.replaceChildren(icon(name, 20));
+      }
+
+      /**
+       * Ventana con la contraseña del panel antes de algo delicado. `send(password)` devuelve { status, json }.
+       * Con `danger`, papelera roja y botón rojo; si no, el ícono que se pida (por defecto, una llave) en violeta.
+       */
+      function askAdmin({ kicker, title, intro, confirmLabel, danger = false, badge = danger ? 'trash' : 'key', send }) {
         const dialog = $('delete-dialog');
+        setDialogBadge(badge, danger);
         $('delete-kicker').textContent = kicker;
         $('delete-title').textContent = title;
         const password = field('Contraseña del panel', 'password');
@@ -3178,6 +3189,7 @@
         const actions = $('delete-actions');
         const close = () => dialog.close();
         const route = '/api/requests/' + encodeURIComponent(id);
+        setDialogBadge('trash', true);
         $('delete-kicker').textContent = 'Borrar pedido';
         $('delete-title').textContent = title;
 
@@ -4204,7 +4216,8 @@
         "hard-drive": "<path d=\"M10 16h.01\"/><path d=\"M2.212 11.577a2 2 0 0 0-.212.896V18a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-5.527a2 2 0 0 0-.212-.896L18.55 5.11A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z\"/><path d=\"M21.946 12.013H2.054\"/><path d=\"M6 16h.01\"/>",
         "menu": "<path d=\"M4 5h16\"/><path d=\"M4 12h16\"/><path d=\"M4 19h16\"/>",
         "ellipsis": "<circle cx=\"12\" cy=\"12\" r=\"1\"/><circle cx=\"19\" cy=\"12\" r=\"1\"/><circle cx=\"5\" cy=\"12\" r=\"1\"/>",
-        "tv": "<rect width=\"20\" height=\"15\" x=\"2\" y=\"7\" rx=\"2\" ry=\"2\"/><polyline points=\"17 2 12 7 7 2\"/>",
+        "key": "<path d=\"M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z\"/><circle cx=\"16.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"/>",
+        "tv":"<rect width=\"20\" height=\"15\" x=\"2\" y=\"7\" rx=\"2\" ry=\"2\"/><polyline points=\"17 2 12 7 7 2\"/>",
         "trash":"<path d=\"M3 6h18\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/><path d=\"M10 11v6\"/><path d=\"M14 11v6\"/>",
       };
 
