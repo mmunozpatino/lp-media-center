@@ -937,6 +937,7 @@ const PAIRING_MAX_FAILURES = 5;
 const PAIRING_MAX_STARTS = 20;
 const LOGIN_MAX_FAILURES = 5;
 const LOGIN_LOCK_MS = 60 * 1000;
+const ADMIN_MISSING = 'Todavía no hay administrador de LP Cine Vault: configuralo en la app de la PC.';
 /** Nombre que se muestra de un dispositivo: sin caracteres de control y de hasta 60 letras. */
 export function cleanDeviceName(name) {
   return typeof name === 'string' ? name.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60) : '';
@@ -970,6 +971,24 @@ export function createAuth({ file = AUTH_FILE, now = Date.now } = {}) {
 
   const activePairing = () => (pairing && now() < pairing.expires ? pairing : null);
 
+  /** Bloqueado por intentos: 429 con los segundos que faltan. Null si se puede probar. */
+  function lockedFor(key) {
+    const failures = loginFailures.get(key);
+    if (!failures || failures.count < LOGIN_MAX_FAILURES || now() >= failures.until) return null;
+    const seconds = Math.max(1, Math.ceil((failures.until - now()) / 1000));
+    return [429, { code: 'locked', retryInSeconds: seconds, error: `Demasiados intentos fallidos. Esperá ${seconds} segundos y probá de nuevo.` }];
+  }
+
+  /** Cuenta un intento fallido. Avisa cuántos quedan, o el bloqueo si fue el último. */
+  function failed(key, message) {
+    const previous = loginFailures.get(key);
+    const count = previous && now() < previous.until ? previous.count + 1 : 1;
+    loginFailures.set(key, { count, until: now() + LOGIN_LOCK_MS });
+    const left = LOGIN_MAX_FAILURES - count;
+    if (left <= 0) return lockedFor(key);
+    return [401, { code: 'wrong-password', attemptsLeft: left, error: `${message} ${left === 1 ? 'Queda 1 intento' : `Quedan ${left} intentos`} antes de esperar un minuto.` }];
+  }
+
   function failPairing() {
     pairing.failures += 1;
     if (pairing.failures >= PAIRING_MAX_FAILURES) pairing = null;
@@ -986,17 +1005,30 @@ export function createAuth({ file = AUTH_FILE, now = Date.now } = {}) {
       };
     },
 
-    setPassword({ user, password }) {
+    /**
+     * Crea el administrador o le pone una contraseña nueva sin pedir la anterior: solo se llega desde la app de esta PC,
+     * que es de confianza local. Es el camino para recuperarla. Cierra las sesiones de todos los celulares.
+     */
+    setPassword({ user, password, repeat } = {}) {
       if (typeof user !== 'string' || !user.trim()) return [400, { error: 'Falta el usuario' }];
+      if (user.trim().length > 40) return [400, { error: 'El usuario puede tener hasta 40 caracteres' }];
       if (typeof password !== 'string' || password.length < 8) {
         return [400, { error: 'La contraseña necesita al menos 8 caracteres' }];
       }
+      if (password.length > 1024) return [400, { error: 'La contraseña es demasiado larga' }];
+      if (repeat !== undefined && repeat !== password) return [400, { error: 'Las dos contraseñas no coinciden' }];
+      const created = !data.hash;
+      const closed = data.sessions.length;
       data.user = user.trim();
       data.salt = randomBytes(16).toString('hex');
       data.hash = hashPassword(password, data.salt);
       data.sessions = []; // Cambiar la contraseña cierra todas las sesiones.
+      loginFailures.clear(); // Con la contraseña nueva, los intentos fallidos de antes no cuentan.
       save();
-      return [200, { ok: true }];
+      const message = created
+        ? `Listo: ${data.user} es el administrador de LP Cine Vault.`
+        : `Contraseña restablecida para ${data.user}.${closed ? ' Los celulares y tablets tienen que volver a iniciar sesión.' : ''}`;
+      return [200, { ok: true, created, message }];
     },
 
     /** Código de 12 caracteres, de un solo uso: se muestra en la PC y se escribe en el celular. */
@@ -1055,24 +1087,23 @@ export function createAuth({ file = AUTH_FILE, now = Date.now } = {}) {
       return [200, { proof: hmac(device.secret, `pc|${clientNonce}`).toString('hex') }];
     },
 
+    /** Quién es el administrador, para nombrarlo en la interfaz. Nunca el hash. */
+    adminInfo() {
+      return { configured: Boolean(data.hash), user: data.hash ? data.user : null };
+    },
+
     login({ deviceId, user, password }) {
       const device = data.devices.find((candidate) => candidate.id === deviceId);
       if (!device) return [403, { error: 'Este celular no está emparejado' }];
-      if (!data.hash) return [403, { error: 'Falta crear la contraseña en la app de la PC' }];
-      const failures = loginFailures.get(deviceId);
-      if (failures && failures.count >= LOGIN_MAX_FAILURES && now() < failures.until) {
-        return [429, { error: 'Demasiados intentos. Esperá un minuto.' }];
-      }
+      if (!data.hash) return [403, { code: 'admin-missing', error: ADMIN_MISSING }];
+      const blocked = lockedFor(deviceId);
+      if (blocked) return blocked;
       const good =
         typeof password === 'string' &&
         password.length <= 1024 &&
         sameBytes(user, data.user) &&
         sameBytes(hashPassword(password, data.salt), data.hash);
-      if (!good) {
-        const count = failures && now() < failures.until ? failures.count + 1 : 1;
-        loginFailures.set(deviceId, { count, until: now() + LOGIN_LOCK_MS });
-        return [401, { error: 'Usuario o contraseña incorrectos' }];
-      }
+      if (!good) return failed(deviceId, 'Usuario o contraseña incorrectos.');
       loginFailures.delete(deviceId);
       const token = randomBytes(32).toString('hex');
       data.sessions = data.sessions.filter((session) => now() < session.expires);
@@ -1082,22 +1113,17 @@ export function createAuth({ file = AUTH_FILE, now = Date.now } = {}) {
     },
 
     /**
-     * La contraseña del panel, pedida de nuevo para algo irreversible (borrar un pedido). Vale también desde esta PC,
-     * donde no se pide login, y tiene su propio límite de intentos.
+     * La contraseña del administrador de LP Cine Vault, pedida de nuevo para algo delicado: borrar un pedido, autorizar
+     * un código de Jellyfin o desconectar un dispositivo. Vale también desde esta PC, donde no se pide login, y tiene su
+     * propio límite de intentos.
      */
     verifyAdmin({ password } = {}) {
-      if (!data.hash) return [403, { error: 'Primero creá la contraseña del panel en Settings, en la app de la PC' }];
-      const failures = loginFailures.get('admin');
-      if (failures && failures.count >= LOGIN_MAX_FAILURES && now() < failures.until) {
-        return [429, { error: 'Demasiados intentos. Esperá un minuto.' }];
-      }
+      if (!data.hash) return [403, { code: 'admin-missing', error: ADMIN_MISSING }];
+      const blocked = lockedFor('admin');
+      if (blocked) return blocked;
       const good =
         typeof password === 'string' && password.length <= 1024 && sameBytes(hashPassword(password, data.salt), data.hash);
-      if (!good) {
-        const count = failures && now() < failures.until ? failures.count + 1 : 1;
-        loginFailures.set('admin', { count, until: now() + LOGIN_LOCK_MS });
-        return [401, { error: 'Contraseña incorrecta' }];
-      }
+      if (!good) return failed('admin', `Esa no es la contraseña del administrador (${data.user}).`);
       loginFailures.delete('admin');
       return [200, { ok: true }];
     },
@@ -2004,7 +2030,8 @@ export function createApp(
       res.setHeader('Allow', 'GET');
       return sendJson(res, 405, { error: 'Solo GET' });
     }
-    return sendJson(res, 200, await collectShared());
+    // Quién es el administrador, para nombrarlo al pedir su contraseña y para obligar a configurarlo en la PC.
+    return sendJson(res, 200, { ...(await collectShared()), admin: auth ? auth.adminInfo() : null });
   }
 
   const server = http.createServer(async (req, res) => {

@@ -103,7 +103,8 @@ describe('contraseña de administrador', () => {
     assert.equal(auth.verifyAdmin({ password: 'x' })[0], 403); // Sin contraseña creada todavía.
     auth.setPassword({ user: 'admin', password: 'contraseña-buena' });
     assert.equal(auth.verifyAdmin({ password: 'contraseña-buena' })[0], 200);
-    for (let i = 0; i < 5; i++) assert.equal(auth.verifyAdmin({ password: 'mala' })[0], 401);
+    for (let i = 0; i < 4; i++) assert.equal(auth.verifyAdmin({ password: 'mala' })[0], 401);
+    assert.equal(auth.verifyAdmin({ password: 'mala' })[0], 429); // El quinto ya avisa el bloqueo.
     assert.equal(auth.verifyAdmin({ password: 'contraseña-buena' })[0], 429);
     clock += 61_000;
     assert.equal(auth.verifyAdmin({ password: 'contraseña-buena' })[0], 200);

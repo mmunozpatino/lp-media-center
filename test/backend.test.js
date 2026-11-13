@@ -1096,7 +1096,8 @@ describe('login y emparejamiento', () => {
     assert.equal(auth.setPassword({ user: 'mechi', password: 'corta' })[0], 400);
     assert.equal(auth.setPassword({ user: 'mechi', password: 'una-clave-larga' })[0], 200);
     assert.equal(auth.login({ deviceId: 'otro', user: 'mechi', password: 'una-clave-larga' })[0], 403);
-    for (let i = 0; i < 5; i += 1) assert.equal(auth.login({ deviceId, user: 'mechi', password: 'mala-clave' })[0], 401);
+    for (let i = 0; i < 4; i += 1) assert.equal(auth.login({ deviceId, user: 'mechi', password: 'mala-clave' })[0], 401);
+    assert.equal(auth.login({ deviceId, user: 'mechi', password: 'mala-clave' })[0], 429); // El quinto ya avisa el bloqueo.
     assert.equal(auth.login({ deviceId, user: 'mechi', password: 'una-clave-larga' })[0], 429);
     clock += 61 * 1000;
     const [status, { token }] = auth.login({ deviceId, user: 'mechi', password: 'una-clave-larga' });

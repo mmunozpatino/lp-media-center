@@ -69,6 +69,16 @@ Escucha en `0.0.0.0`, solo IPv4, porque la PC tiene IPv6 público.
   emparejar y se cambia desde la PC (`/api/setup/devices/<id>/rename`). Sin probar con una cámara real: en el emulador
   se probó el enlace con `adb` y que el lector abre y se cierra.
 - **Entrar:** `/api/identify` prueba que es la PC antes de mandar la contraseña. Sesión de 30 días; 5 errores frenan un minuto.
+- **Administrador de LP Cine Vault** (pedido de la usuaria el 2026-11-13, porque "la contraseña del panel" le daba incorrecta y no
+  sabía cuál era): usuario y contraseña en `auth.json` (hash scrypt). Con ellos entran los celulares, y `verifyAdmin` los pide
+  para borrar pedidos, autorizar códigos de Jellyfin y desconectar dispositivos; la ventana dice "Contraseña de administrador
+  (<usuario>)". `GET /api/status` trae `admin: { configured, user }`, nunca el hash. Sin administrador, la app de la PC muestra
+  "Creá el administrador" (usuario, contraseña y repetición) y no deja usar nada más; en el celu, el login dice que falta
+  configurarlo en la PC. **Recuperar:** Settings → "Administrador de LP Cine Vault" → "Restablecer contraseña", sin saber la
+  anterior (solo desde la app de la PC, que es de confianza local), con confirmación; cierra las sesiones de los celulares y
+  borra los bloqueos. Errores con `code`: `admin-missing` (403), `wrong-password` (401, con `attemptsLeft`) y `locked` (429, con
+  `retryInSeconds`); el quinto error ya bloquea. Tests en `test/admin.test.js`. Ninguna prueba creó la contraseña de
+  `~/.lp-media-center/auth.json`: todas usan archivos temporales (revisado en el historial el 2026-11-13).
 - **Firewall:** `scripts/firewall.ps1` crea `LP Media Center (LAN y Tailscale)`, atada al `.exe`, y `Seerr (Tailscale)`, en perfil Privado. Si se cancela el cartel de Windows al abrir el puerto, se crean reglas de bloqueo que ganan sobre el permiso: ese script las borra. Sin probar desde otro equipo. Bazarr y qBittorrent no tienen regla
   de LAN: la flecha desde el celu solo los abre por Tailscale.
 

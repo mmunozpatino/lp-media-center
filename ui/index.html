@@ -3000,7 +3000,7 @@
 
       // --- Jellyfin ---
       // Acceso rápido, dispositivos, quién está mirando y actividad. Lo lee la PC con una clave de API de Jellyfin que
-      // nunca llega a esta pantalla. Autorizar un código y desconectar un dispositivo piden la contraseña del panel.
+      // nunca llega a esta pantalla. Autorizar un código y desconectar un dispositivo piden la contraseña de administrador.
       let jellyfinData = null;
       let jellyfinLoading = false;
       let jellyfinQuick = null;
@@ -3027,7 +3027,7 @@
       }
 
       /**
-       * Ventana con la contraseña del panel antes de algo delicado. `send(password)` devuelve { status, json }.
+       * Ventana con la contraseña de administrador antes de algo delicado. `send(password)` devuelve { status, json }.
        * Con `danger`, papelera roja y botón rojo; si no, el ícono que se pida (por defecto, una llave) en violeta.
        */
       function askAdmin({ kicker, title, intro, confirmLabel, danger = false, badge = danger ? 'trash' : 'key', send }) {
@@ -3035,7 +3035,7 @@
         setDialogBadge(badge, danger);
         $('delete-kicker').textContent = kicker;
         $('delete-title').textContent = title;
-        const password = field('Contraseña del panel', 'password');
+        const password = field(adminPasswordLabel(), 'password');
         password.input.autocomplete = 'current-password';
         const error = el('p', 'action-result failed');
         const confirm = actionButton(confirmLabel, async () => {
@@ -3109,7 +3109,7 @@
             askAdmin({
               kicker: 'Acceso rápido de Jellyfin',
               title: 'Código ' + value,
-              intro: `El dispositivo que muestra ese código va a entrar a Jellyfin como ${chosen}. Para seguir, escribí la contraseña del panel.`,
+              intro: `El dispositivo que muestra ese código va a entrar a Jellyfin como ${chosen}. Para seguir, escribí la contraseña de administrador de ${PRODUCT_NAME}.`,
               confirmLabel: 'Autorizar',
               send: (password) => postJson('/api/jellyfin/quick-connect', { password, code: value, userId: user.value }),
             });
@@ -3163,7 +3163,7 @@
                 askAdmin({
                   kicker: 'Desconectar dispositivo',
                   title: device.name,
-                  intro: `${device.name} va a salir de Jellyfin y para volver va a tener que iniciar sesión. Para seguir, escribí la contraseña del panel.`,
+                  intro: `${device.name} va a salir de Jellyfin y para volver va a tener que iniciar sesión. Para seguir, escribí la contraseña de administrador de ${PRODUCT_NAME}.`,
                   confirmLabel: 'Desconectar',
                   danger: true,
                   send: (password) => postJson('/api/jellyfin/devices/' + encodeURIComponent(device.id) + '/remove', { password }),
@@ -3194,7 +3194,7 @@
       }
 
       // --- Borrar pedidos ---
-      // La única excepción a no tocar la biblioteca (ver el backend). La contraseña del panel se verifica en la PC antes
+      // La única excepción a no tocar la biblioteca (ver el backend). La contraseña de administrador se verifica en la PC antes
       // de mostrar nada, y la confirmación dice exactamente qué se borra, archivos incluidos. Qué es un pedido lo decide
       // el backend, nunca esta pantalla.
       function deleteButton(id, title) {
@@ -3225,8 +3225,8 @@
         $('delete-kicker').textContent = 'Borrar pedido';
         $('delete-title').textContent = title;
 
-        // 1. La contraseña del panel.
-        const password = field('Contraseña del panel', 'password');
+        // 1. La contraseña de administrador.
+        const password = field(adminPasswordLabel(), 'password');
         password.input.autocomplete = 'current-password';
         const error = el('p', 'action-result failed');
         const next = actionButton('Continuar', async () => {
@@ -3240,7 +3240,7 @@
           if (event.key === 'Enter') next.click();
         });
         body.replaceChildren(
-          el('p', null, 'Se saca de todos los pasos a los que llegó y no se puede deshacer. Para seguir, escribí la contraseña del panel.'),
+          el('p', null, 'Se saca de todos los pasos a los que llegó y no se puede deshacer. Para seguir, escribí la contraseña de administrador de ' + PRODUCT_NAME + '.'),
           password.node,
           error,
         );
@@ -5587,6 +5587,84 @@
         );
       }
 
+      // --- Administrador de la app ---
+      // Usuario y contraseña con los que entran los celulares y que se piden para borrar pedidos, autorizar códigos de
+      // Jellyfin y desconectar dispositivos. Sin administrador, la app de la PC no deja usar nada hasta crearlo. Desde la
+      // PC se puede restablecer sin saber la anterior: es de confianza local, y es el camino si se olvida.
+
+      /** Usuario, contraseña y repetición. `onDone(json)` cuando el backend la acepta. */
+      function adminForm({ user = '', submitLabel, confirmText = null, onDone }) {
+        const name = field('Usuario', 'text', user);
+        name.input.autocomplete = 'username';
+        name.input.maxLength = 40;
+        const password = field('Contraseña (8 caracteres o más)', 'password');
+        password.input.autocomplete = 'new-password';
+        const repeat = field('Repetir contraseña', 'password');
+        repeat.input.autocomplete = 'new-password';
+        const error = el('p', 'form-error');
+        const submit = actionButton(submitLabel, async () => {
+          await runForm(submit, error, async () => {
+            if (password.input.value !== repeat.input.value) throw new Error('Las dos contraseñas no coinciden');
+            if (confirmText && !window.confirm(confirmText)) return;
+            const json = await setupRequest('/api/setup/password', { user: name.input.value, password: password.input.value, repeat: repeat.input.value });
+            notify(json.message ?? 'Listo', 'green');
+            onDone(json);
+          }, 'Guardando…');
+        }, true);
+        repeat.input.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') submit.click();
+        });
+        return { nodes: [name.node, password.node, repeat.node, el('div', 'row-actions', submit), error], focus: () => name.input.focus() };
+      }
+
+      /** PC sin administrador: no se puede usar nada hasta crearlo. */
+      function showAdminSetup() {
+        $('summary').textContent = 'Primera vez en esta PC';
+        const form = adminForm({
+          user: 'admin',
+          submitLabel: 'Crear administrador',
+          onDone: () => {
+            closeGate();
+            refresh();
+          },
+        });
+        showGate(
+          el('h2', null, 'Creá el administrador'),
+          el('p', 'muted', `Antes de usar ${PRODUCT_NAME}, elegí un usuario y una contraseña de administrador. Con ellos entran los celulares y tablets, y se piden para borrar pedidos, autorizar códigos de Jellyfin y desconectar dispositivos.`),
+          ...form.nodes,
+        );
+        form.focus();
+      }
+
+      /** Settings: quién es el administrador y cómo restablecer su contraseña sin saber la anterior. */
+      function adminCard(setup) {
+        const body = el('div');
+        const reset = actionButton('Restablecer contraseña', () => {
+          const form = adminForm({
+            user: setup.user ?? '',
+            submitLabel: 'Guardar contraseña nueva',
+            confirmText: `¿Restablecer la contraseña del administrador?\n\nLa anterior deja de valer y los celulares y tablets tienen que volver a iniciar sesión con la nueva.`,
+            onDone: () => loadDevices(),
+          });
+          body.replaceChildren(...form.nodes, el('div', 'row-actions', actionButton('Cancelar', () => loadDevices())));
+          form.focus();
+        });
+        body.append(el('div', 'row-actions', reset));
+        return el(
+          'article',
+          'card',
+          el('h3', null, `Administrador de ${PRODUCT_NAME}`),
+          el('p', 'muted small', `Usuario: ${setup.user ?? '—'}. Con esta cuenta entran los celulares y tablets, y se confirma lo delicado. Si te olvidaste la contraseña, restablecela desde acá: no hace falta saber la anterior.`),
+          body,
+        );
+      }
+
+      /** Cómo se nombra al pedir la contraseña: con el usuario, si se sabe. */
+      function adminPasswordLabel() {
+        const user = lastStatus?.admin?.user;
+        return user ? `Contraseña de administrador (${user})` : 'Contraseña de administrador';
+      }
+
       async function setupRequest(path, body) {
         const response = await apiRequest(pcHost, path, { method: body ? 'POST' : 'GET', body });
         const json = await response.json();
@@ -5608,28 +5686,7 @@
         const error = el('p', 'form-error');
         const cards = [];
 
-        const user = field('Usuario', 'text', setup.user ?? '');
-        const password = field(setup.hasPassword ? 'Contraseña nueva' : 'Contraseña', 'password');
-        const repeat = field('Repetir contraseña', 'password');
-        const save = actionButton(setup.hasPassword ? 'Cambiar contraseña' : 'Crear contraseña', async () => {
-          await runForm(save, error, async () => {
-            if (password.input.value !== repeat.input.value) throw new Error('Las contraseñas no coinciden');
-            await setupRequest('/api/setup/password', { user: user.input.value, password: password.input.value });
-            await loadDevices();
-          }, 'Guardando…');
-        }, !setup.hasPassword);
-        cards.push(
-          el(
-            'article',
-            'card',
-            el('h3', null, setup.hasPassword ? 'Contraseña del panel' : 'Primero, creá la contraseña del panel'),
-            el('p', 'muted small', 'La pide el celular para entrar. En esta PC no hace falta. Cambiarla cierra las sesiones de los celulares.'),
-            user.node,
-            password.node,
-            repeat.node,
-            el('div', 'row-actions', save),
-          ),
-        );
+        cards.push(adminCard(setup));
 
         const pair = actionButton('Emparejar un celular', async () => {
           await runForm(pair, error, async () => loadDevices(await setupRequest('/api/setup/pairing', {})), 'Creando…');
@@ -5702,6 +5759,10 @@
         try {
           lastStatus = await fetchStatus();
           if (isMobile) await rememberNetwork(lastStatus.network);
+          if (!isMobile && lastStatus.admin && !lastStatus.admin.configured) {
+            showAdminSetup();
+            return;
+          }
           render(lastStatus);
           hideSplash();
           if (document.body.dataset.view === 'jellyfin') loadJellyfin();
