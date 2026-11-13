@@ -784,6 +784,70 @@
         flex: none;
       }
 
+      /* --- Overview del celu (solo con la clase app-android, nunca por ancho) --- */
+      .app-android #view-overview > .room-head,
+      .app-android #room {
+        display: none;
+      }
+
+      .app-android #panels {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+      }
+
+      .app-android #panels > .panel {
+        min-height: 0;
+      }
+
+      .app-android .health-wrap {
+        margin-top: var(--gap);
+      }
+
+      .health {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        min-height: 64px;
+        padding: 12px 14px;
+        border: 1px solid color-mix(in srgb, var(--c) 45%, var(--border-soft));
+        border-radius: 14px;
+        background: linear-gradient(180deg, color-mix(in srgb, var(--c) 10%, var(--card-2)), var(--card));
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .health > svg:first-child {
+        flex: none;
+        color: var(--c);
+      }
+
+      .health > svg:last-child {
+        flex: none;
+        color: var(--muted);
+      }
+
+      .health-text {
+        display: grid;
+        flex: 1;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .health-text strong {
+        font-size: 15px;
+      }
+
+      .health-text span {
+        color: var(--muted);
+        font-size: 12.5px;
+      }
+
+      .quick-message.failed {
+        color: var(--red);
+      }
+
       .download-head {
         display: flex;
         align-items: flex-start;
@@ -1930,11 +1994,382 @@
         background: #fff;
       }
 
-      .card.device-row {
-        flex-direction: row;
+      /* --- Celulares (vista propia, solo en la app de Windows) --- */
+      .devices-head {
+        display: flex;
+        flex-wrap: wrap;
         align-items: center;
-        justify-content: space-between;
+        gap: 12px 16px;
+        margin-bottom: 18px;
+      }
+
+      .devices-head-icon,
+      .dev-tile {
+        display: grid;
+        flex: none;
+        place-items: center;
+        color: #fff;
+        background: linear-gradient(145deg, #a874ff, #6d33d6);
+        box-shadow: 0 8px 24px rgba(124, 58, 237, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+      }
+
+      .devices-head-icon {
+        width: 56px;
+        height: 56px;
+        border-radius: 16px;
+      }
+
+      .devices-head-text {
+        flex: 1 1 200px;
+        min-width: 0;
+      }
+
+      .devices-head-text h2 {
+        font-size: 28px;
+        font-weight: 750;
+        line-height: 1.15;
+        letter-spacing: -0.01em;
+      }
+
+      .devices-head-text p {
+        margin-top: 2px;
+      }
+
+      .devices-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 7px 14px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--card) 75%, transparent);
+        color: var(--text-2);
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      .devices-pill:has(#devices-meta:empty) {
+        display: none;
+      }
+
+      .devices-dot {
+        width: 9px;
+        height: 9px;
+        flex: none;
+        border-radius: 50%;
+        background: var(--green);
+        box-shadow: 0 0 10px color-mix(in srgb, var(--green) 65%, transparent);
+      }
+
+      .devices-pill[data-state='warning'] .devices-dot {
+        background: var(--yellow);
+        box-shadow: none;
+      }
+
+      .devices-pill[data-state='empty'] .devices-dot {
+        background: var(--muted);
+        box-shadow: none;
+      }
+
+      #devices {
+        container-type: inline-size;
+      }
+
+      .devices-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: stretch;
+        gap: 18px 20px;
+      }
+
+      .devices-grid > .form-error {
+        grid-column: 1 / -1;
+        margin: 0;
+      }
+
+      .devices-grid > .form-error:empty {
+        display: none;
+      }
+
+      .card.dev-card,
+      .card.dev-device {
+        border-color: color-mix(in srgb, var(--purple) 26%, transparent);
+        border-radius: 16px;
+        background: linear-gradient(160deg, color-mix(in srgb, var(--purple) 8%, var(--card-2)), color-mix(in srgb, var(--card) 90%, transparent));
+        box-shadow: var(--shadow), 0 0 28px color-mix(in srgb, var(--purple) 7%, transparent);
+      }
+
+      .card.dev-card {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        align-items: start;
+        gap: 6px 16px;
+        padding: clamp(16px, 1.4vw, 22px);
+        overflow: hidden;
+        isolation: isolate;
+        container-type: inline-size;
+      }
+
+      .dev-card > * + *,
+      .dev-device > * + * {
+        margin-top: 0;
+      }
+
+      .dev-card h3,
+      .dev-device h3 {
+        font-size: 17px;
+        font-weight: 700;
+      }
+
+      .dev-tile {
+        width: 48px;
+        height: 48px;
+        border-radius: 13px;
+      }
+
+      .dev-card-body {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+      }
+
+      .dev-card-body > .row-actions {
+        margin-top: 8px;
+      }
+
+      .card.dev-pair {
+        border-color: color-mix(in srgb, var(--purple) 45%, transparent);
+        background: linear-gradient(120deg, color-mix(in srgb, var(--purple) 28%, var(--card)), color-mix(in srgb, var(--purple) 10%, var(--card)) 75%);
+      }
+
+      /* Adornos: detrás del texto, sin recibir clics. */
+      .dev-decor {
+        position: absolute;
+        z-index: -1;
+        opacity: var(--art-opacity);
+        pointer-events: none;
+      }
+
+      .dev-decor-clapper {
+        right: 16px;
+        bottom: -18px;
+        width: 150px;
+        opacity: calc(var(--art-opacity) * 0.22);
+        transform: rotate(-10deg);
+      }
+
+      .dev-decor-qr {
+        top: 50%;
+        right: 6px;
+        width: 170px;
+        transform: translateY(-50%);
+      }
+
+      .dev-decor-phone {
+        top: 16px;
+        right: -12px;
+        width: 210px;
+      }
+
+      .dev-admin .dev-card-body {
+        padding-right: 110px;
+      }
+
+      .dev-pair .dev-card-body {
+        padding-right: 150px;
+      }
+
+      .dev-apk .dev-card-body {
+        padding-right: 150px;
+      }
+
+      .apk-body {
+        display: flex;
+        flex-wrap: wrap;
+        grid-column: 1 / -1;
+        align-items: center;
+        gap: 16px 28px;
+        margin-top: 12px;
+      }
+
+      /* Fondo blanco en los dos temas, como .pair-qr. */
+      .apk-qr-box {
+        flex: none;
+        padding: 10px;
+        border-radius: 16px;
+        background: #fff;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+      }
+
+      .apk-qr-box .pair-qr {
+        width: 150px;
+        height: 150px;
+        border-radius: 0;
+      }
+
+      .apk-side {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 14px;
+        min-width: 0;
+        max-width: 100%;
+      }
+
+      .apk-pill {
+        display: flex;
+        align-items: center;
         gap: 10px;
+        max-width: 100%;
+        min-height: 44px;
+        padding-left: 14px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: color-mix(in srgb, var(--bg) 50%, var(--card));
+        color: var(--muted);
+      }
+
+      .apk-link {
+        min-width: 0;
+        overflow: hidden;
+        color: var(--text-2);
+        font-size: 13.5px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .apk-pill .icon-button {
+        align-self: stretch;
+        width: 44px;
+        height: auto;
+        border-left: 1px solid var(--border);
+        border-radius: 0 11px 11px 0;
+      }
+
+      .dev-list {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        min-width: 0;
+        container-type: inline-size;
+      }
+
+      .card.dev-device {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-areas: 'tile info actions';
+        align-items: center;
+        gap: 10px 18px;
+        padding: 18px 40px 18px 18px;
+      }
+
+      .dev-device-tile {
+        display: grid;
+        grid-area: tile;
+        place-items: center;
+        width: 64px;
+        height: 64px;
+        border: 1px solid color-mix(in srgb, var(--k) 35%, transparent);
+        border-radius: 16px;
+        background: color-mix(in srgb, var(--k) 16%, var(--card));
+        color: var(--k);
+      }
+
+      .dev-android {
+        --k: var(--green);
+      }
+
+      .dev-tablet {
+        --k: var(--purple-text);
+      }
+
+      .dev-other {
+        --k: var(--blue);
+      }
+
+      .dev-device-info {
+        grid-area: info;
+        min-width: 0;
+      }
+
+      .dev-device-info p {
+        margin-top: 2px;
+      }
+
+      .dev-device-info .row-actions {
+        margin-top: 8px;
+      }
+
+      .dev-device-actions {
+        display: flex;
+        flex-wrap: wrap;
+        grid-area: actions;
+        justify-content: flex-end;
+        gap: 10px;
+      }
+
+      .dev-device-dot {
+        position: absolute;
+        top: 14px;
+        right: 14px;
+      }
+
+      .card.dev-empty {
+        display: block;
+        padding: 18px;
+      }
+
+      .button.danger-soft {
+        border-color: color-mix(in srgb, var(--red) 55%, transparent);
+        background: color-mix(in srgb, var(--red) 10%, transparent);
+        color: var(--red);
+      }
+
+      .button.danger-soft:hover:not(:disabled) {
+        border-color: var(--red);
+        box-shadow: 0 0 16px color-mix(in srgb, var(--red) 20%, transparent);
+      }
+
+      /* Angosto: una columna, sin adornos, y los botones de cada dispositivo debajo del nombre. */
+      @container (max-width: 860px) {
+        .devices-grid {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+
+      @container (max-width: 560px) {
+        .dev-decor {
+          display: none;
+        }
+
+        .dev-admin .dev-card-body,
+        .dev-pair .dev-card-body,
+        .dev-apk .dev-card-body {
+          padding-right: 0;
+        }
+      }
+
+      @container (max-width: 520px) {
+        .card.dev-device {
+          grid-template-columns: auto minmax(0, 1fr);
+          grid-template-areas: 'tile info' 'actions actions';
+        }
+
+        .dev-device-actions {
+          justify-content: flex-start;
+        }
+      }
+
+      @container (max-width: 380px) {
+        .card.dev-card {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .dev-device-tile {
+          width: 52px;
+          height: 52px;
+        }
       }
 
       .theme-picker {
@@ -2324,7 +2759,6 @@
         #downloads > .stack,
         #requests > .stack,
         #network > .stack,
-        #devices > .stack,
         #jellyfin > .stack {
           grid-template-columns: minmax(0, 1fr);
         }
@@ -2466,12 +2900,6 @@
         .issues {
           padding: 5px 6px;
           font-size: 12px;
-        }
-
-        .card.device-row {
-          flex-direction: column;
-          align-items: stretch;
-          gap: 8px;
         }
 
         .view-actions {
@@ -2627,6 +3055,8 @@
         <button type="button" class="nav-item secondary" data-view="storage"><span data-icon="database"></span>Storage</button>
         <button type="button" class="nav-item secondary" data-view="network"><span data-icon="wifi"></span>Network</button>
         <button type="button" class="nav-item secondary" data-view="jellyfin"><span data-icon="tv"></span>Jellyfin</button>
+        <!-- Celulares: solo en la app de Windows. Se muestra al arrancar si no es el celu. -->
+        <button type="button" class="nav-item secondary" data-view="devices" data-desktop-only hidden><span data-icon="smartphone"></span>Celulares</button>
         <button type="button" class="nav-item secondary" data-view="settings"><span data-icon="settings"></span>Settings</button>
         <!-- Solo en celular: la barra de abajo muestra 4 secciones y "Más" abre las otras. -->
         <button type="button" id="nav-more" class="nav-more" aria-haspopup="true" aria-expanded="false" aria-controls="more-menu"><span data-icon="ellipsis"></span>Más</button>
@@ -2635,6 +3065,7 @@
         <button type="button" class="nav-item" data-view="storage"><span data-icon="database"></span>Storage</button>
         <button type="button" class="nav-item" data-view="network"><span data-icon="wifi"></span>Network</button>
         <button type="button" class="nav-item" data-view="jellyfin"><span data-icon="tv"></span>Jellyfin</button>
+        <button type="button" class="nav-item" data-view="devices" data-desktop-only hidden><span data-icon="smartphone"></span>Celulares</button>
         <button type="button" class="nav-item" data-view="settings"><span data-icon="settings"></span>Settings</button>
       </div>
       <div class="side-art">
@@ -2693,6 +3124,7 @@
               <span id="monitored" class="count"></span>
             </div>
             <div id="room" class="room"></div>
+            <div id="health" class="health-wrap" hidden></div>
             <div id="panels" class="panels"></div>
           </section>
 
@@ -2747,6 +3179,19 @@
             <div id="jellyfin"></div>
           </section>
 
+          <!-- Solo en la app de Windows: su encabezado hace de título de la vista. -->
+          <section id="view-devices" class="view" hidden>
+            <div class="devices-head">
+              <span class="devices-head-icon"><span data-icon="smartphone" data-size="28"></span></span>
+              <div class="devices-head-text">
+                <h2>Celulares</h2>
+                <p class="muted">Gestiona y configura tus dispositivos</p>
+              </div>
+              <span class="devices-pill"><span class="devices-dot" aria-hidden="true"></span><span id="devices-meta"></span></span>
+            </div>
+            <div id="devices"></div>
+          </section>
+
           <section id="view-settings" class="view" hidden>
             <div class="view-head">
               <div class="view-title"><h2>Settings</h2></div>
@@ -2775,10 +3220,6 @@
             <div class="settings-block">
               <div class="view-title settings-sub"><h2>Novedades</h2></div>
               <div id="news" class="news-history"></div>
-            </div>
-            <div class="settings-block" id="devices-section" hidden>
-              <div class="view-title settings-sub"><h2>Celulares</h2><span id="devices-meta" class="muted small"></span></div>
-              <div id="devices"></div>
             </div>
             <div class="settings-block" id="connection-section" hidden>
               <div class="view-title settings-sub"><h2>Conexión con la PC</h2><span id="connection-meta" class="muted small"></span></div>
@@ -2830,6 +3271,9 @@
 
       const pageParams = new URLSearchParams(location.search);
       const isMobile = Boolean(window.Capacitor?.isNativePlatform?.()) || pageParams.has('celular');
+      // Lo propio del celu (por ejemplo, su Overview) cuelga de esta clase y no del ancho: la app de Windows con la
+      // ventana angosta tiene que seguir igual.
+      if (isMobile) document.documentElement.classList.add('app-android');
 
       let pcHost = isMobile ? null : '127.0.0.1';
       let mobile = loadMobile();
@@ -3004,6 +3448,10 @@
       let jellyfinData = null;
       let jellyfinLoading = false;
       let jellyfinQuick = null;
+      let homeQuick = null;
+      let jellyfinLoadedAt = 0;
+      // En el Overview del celu se relee a lo sumo una vez por minuto: es la vista que queda abierta.
+      const HOME_JELLYFIN_MS = 60000;
 
       async function loadJellyfin() {
         if (jellyfinLoading || !pcHost) return;
@@ -3015,8 +3463,15 @@
           jellyfinData = { configured: true, error: 'No llego a la PC' };
         } finally {
           jellyfinLoading = false;
+          jellyfinLoadedAt = Date.now();
         }
         renderJellyfin();
+        if (isMobile) homeQuickPanel();
+      }
+
+      /** Overview del celu: trae Jellyfin si nunca se trajo o pasó un minuto. */
+      function loadHomeJellyfin() {
+        if (isMobile && Date.now() - jellyfinLoadedAt >= HOME_JELLYFIN_MS) loadJellyfin();
       }
 
       /** El ícono de la ventana: rojo para lo que borra o desconecta, el violeta de siempre para lo que da acceso. */
@@ -3095,30 +3550,34 @@
         );
       }
 
-      /** Se arma una sola vez, para no pisar lo que se está escribiendo en cada actualización. */
-      function jellyfinQuickCard() {
-        if (!jellyfinQuick) {
-          const code = field('Código que muestra la tele', 'text');
-          code.input.inputMode = 'numeric';
-          code.input.maxLength = 7;
-          code.input.placeholder = '123456';
-          const user = el('select', 'button');
-          const authorize = actionButton('Autorizar', () => {
-            const value = code.input.value.replace(/\s+/g, '');
-            const chosen = user.selectedOptions[0]?.textContent ?? '';
-            askAdmin({
-              kicker: 'Acceso rápido de Jellyfin',
-              title: 'Código ' + value,
-              intro: `El dispositivo que muestra ese código va a entrar a Jellyfin como ${chosen}. Para seguir, escribí la contraseña de administrador de ${PRODUCT_NAME}.`,
-              confirmLabel: 'Autorizar',
-              send: (password) => postJson('/api/jellyfin/quick-connect', { password, code: value, userId: user.value }),
-            });
-          }, true);
-          const note = el('p', 'muted small');
-          jellyfinQuick = { node: el('article', 'card', el('h3', null, 'Acceso rápido'), note, code.node, el('label', 'field', 'Entra como', user), el('div', 'row-actions', authorize)), user, note, authorize, code };
-        }
-        const { user, note, authorize, code } = jellyfinQuick;
-        const data = jellyfinData;
+      /**
+       * Formulario del acceso rápido (código + usuario, con la contraseña de administrador). Lo usan la vista Jellyfin y
+       * el Overview del celu, cada uno con su copia. Se arma una sola vez, para no pisar lo que se está escribiendo.
+       */
+      function createQuickConnect() {
+        const code = field('Código que muestra la tele', 'text');
+        code.input.inputMode = 'numeric';
+        code.input.maxLength = 7;
+        code.input.placeholder = '123456';
+        const user = el('select', 'button');
+        const authorize = actionButton('Autorizar', () => {
+          const value = code.input.value.replace(/\s+/g, '');
+          const chosen = user.selectedOptions[0]?.textContent ?? '';
+          askAdmin({
+            kicker: 'Acceso rápido de Jellyfin',
+            title: 'Código ' + value,
+            intro: `El dispositivo que muestra ese código va a entrar a Jellyfin como ${chosen}. Para seguir, escribí la contraseña de administrador de ${PRODUCT_NAME}.`,
+            confirmLabel: 'Autorizar',
+            send: (password) => postJson('/api/jellyfin/quick-connect', { password, code: value, userId: user.value }),
+          });
+        }, true);
+        const note = el('p', 'muted small');
+        return { note, fields: [code.node, el('label', 'field', 'Entra como', user), el('div', 'row-actions', authorize)], user, authorize, code };
+      }
+
+      /** Con datos de Jellyfin: usuarios, aviso y si se puede autorizar. */
+      function updateQuickConnect(quick, data) {
+        const { user, note, authorize, code } = quick;
         if (document.activeElement !== user) {
           const selected = user.value;
           user.replaceChildren(...data.users.map((item) => Object.assign(el('option', null, item.name), { value: item.id })));
@@ -3129,7 +3588,36 @@
           : 'El acceso rápido está apagado en Jellyfin. Activalo en el Panel de control → General → "Habilitar acceso rápido".';
         authorize.disabled = !data.quickConnect || !data.users.length;
         code.input.disabled = !data.quickConnect;
+      }
+
+      function jellyfinQuickCard() {
+        if (!jellyfinQuick) {
+          jellyfinQuick = createQuickConnect();
+          jellyfinQuick.node = el('article', 'card', el('h3', null, 'Acceso rápido'), jellyfinQuick.note, ...jellyfinQuick.fields);
+        }
+        updateQuickConnect(jellyfinQuick, jellyfinData);
         return jellyfinQuick.node;
+      }
+
+      /** Overview del celu: el mismo acceso rápido. Sin clave, con error o cargando, solo un aviso corto. */
+      function homeQuickPanel() {
+        if (!homeQuick) {
+          homeQuick = createQuickConnect();
+          homeQuick.message = el('p', 'muted small quick-message');
+          homeQuick.node = panel('tv', 'ACCESO RÁPIDO DE JELLYFIN', null, homeQuick.note, ...homeQuick.fields, homeQuick.message);
+        }
+        const data = jellyfinData;
+        let message = null;
+        if (!data) message = 'Cargando Jellyfin…';
+        else if (!data.configured) message = 'Falta conectar Jellyfin. Se hace una sola vez desde la app de la PC, en la sección Jellyfin.';
+        else if (data.error) message = data.error;
+        homeQuick.message.textContent = message ?? '';
+        homeQuick.message.classList.toggle('failed', Boolean(data?.error));
+        homeQuick.message.hidden = !message;
+        homeQuick.note.hidden = Boolean(message);
+        for (const node of homeQuick.fields) node.hidden = Boolean(message);
+        if (!message) updateQuickConnect(homeQuick, data);
+        return homeQuick.node;
       }
 
       function renderJellyfin() {
@@ -3895,6 +4383,21 @@
         return `${count('ok')} de ${parts.length} funcionan bien · ${pieces.join(' · ')}`;
       }
 
+      /** Resumen de los servicios para el Overview del celu: todo bien, o cuáles tienen problemas y cuál. */
+      function servicesHealth(parts) {
+        if (!parts.length) return { level: 'error', title: 'Sin datos de los servicios', text: 'La PC no informó ningún servicio' };
+        const problems = parts.filter((part) => part.state !== 'ok');
+        if (!problems.length) {
+          return { level: 'ok', title: 'Todo funcionando', text: `Los ${parts.length} servicios responden bien` };
+        }
+        const names = problems.map((part) => part.name).join(', ');
+        return {
+          level: problems.some((part) => part.state === 'down') ? 'down' : 'warning',
+          title: problems.length === 1 ? `1 servicio con problemas: ${names}` : `${problems.length} servicios con problemas: ${names}`,
+          text: problems.map((part) => `${part.name}: ${stateLabel(part.state).toLowerCase()}`).join(' · '),
+        };
+      }
+
       function downloadsMeta(downloads) {
         const total = downloads.items.length;
         if (total === 0) return downloads.errors.length ? 'No se pudo leer todo' : 'Nada';
@@ -4246,6 +4749,14 @@
         return { titles: titles.slice(0, max), more: Math.max(0, titles.length - max) };
       }
 
+      /** Qué ícono lleva un dispositivo emparejado. El backend solo guarda el nombre: se adivina por él, y si no dice nada, genérico. */
+      function deviceKind(name) {
+        const text = String(name ?? '').toLowerCase();
+        if (/tablet|tableta|\btab\b|ipad/.test(text)) return 'tablet';
+        if (/android|\bcelu|\bcel\b|tel[eé]fono|phone|pixel|samsung|galaxy|motorola|\bmoto\b|xiaomi|redmi/.test(text)) return 'android';
+        return 'other';
+      }
+
       // --- Fin de textos ---
 
       // --- Dibujo ---
@@ -4279,6 +4790,15 @@
         "key": "<path d=\"M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z\"/><circle cx=\"16.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"/>",
         "tv":"<rect width=\"20\" height=\"15\" x=\"2\" y=\"7\" rx=\"2\" ry=\"2\"/><polyline points=\"17 2 12 7 7 2\"/>",
         "trash":"<path d=\"M3 6h18\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/><path d=\"M10 11v6\"/><path d=\"M14 11v6\"/>",
+        "smartphone": "<rect width=\"14\" height=\"20\" x=\"5\" y=\"2\" rx=\"2\" ry=\"2\"/><path d=\"M12 18h.01\"/>",
+        "tablet": "<rect width=\"16\" height=\"20\" x=\"4\" y=\"2\" rx=\"2\" ry=\"2\"/><path d=\"M12 18h.01\"/>",
+        "android": "<path d=\"M6 10a6 6 0 0 1 12 0z\"/><path d=\"m8 4.5 1.3 1.8\"/><path d=\"m16 4.5-1.3 1.8\"/><path d=\"M9.5 7.6h.01\"/><path d=\"M14.5 7.6h.01\"/><rect width=\"12\" height=\"7\" x=\"6\" y=\"11.5\" rx=\"1.5\"/><path d=\"M9.5 18.5V21\"/><path d=\"M14.5 18.5V21\"/><path d=\"M3.5 12v5\"/><path d=\"M20.5 12v5\"/>",
+        "cpu": "<rect width=\"16\" height=\"16\" x=\"4\" y=\"4\" rx=\"2\"/><rect width=\"6\" height=\"6\" x=\"9\" y=\"9\" rx=\"1\"/><path d=\"M15 2v2\"/><path d=\"M15 20v2\"/><path d=\"M2 15h2\"/><path d=\"M2 9h2\"/><path d=\"M20 15h2\"/><path d=\"M20 9h2\"/><path d=\"M9 2v2\"/><path d=\"M9 20v2\"/>",
+        "shield-check": "<path d=\"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z\"/><path d=\"m9 12 2 2 4-4\"/>",
+        "circle-plus": "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M8 12h8\"/><path d=\"M12 8v8\"/>",
+        "link": "<path d=\"M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71\"/><path d=\"M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71\"/>",
+        "qr-code": "<rect width=\"5\" height=\"5\" x=\"3\" y=\"3\" rx=\"1\"/><rect width=\"5\" height=\"5\" x=\"16\" y=\"3\" rx=\"1\"/><rect width=\"5\" height=\"5\" x=\"3\" y=\"16\" rx=\"1\"/><path d=\"M21 16h-3a2 2 0 0 0-2 2v3\"/><path d=\"M21 21v.01\"/><path d=\"M12 7v3a2 2 0 0 1-2 2H7\"/><path d=\"M3 12h.01\"/><path d=\"M12 3h.01\"/><path d=\"M12 16v.01\"/><path d=\"M16 12h1\"/><path d=\"M21 12v.01\"/><path d=\"M12 21v-1\"/>",
+        "arrow-left-right": "<path d=\"M8 3 4 7l4 4\"/><path d=\"M4 7h16\"/><path d=\"m16 21 4-4-4-4\"/><path d=\"M20 17H4\"/>",
       };
 
       /** Logos de cada programa, de walkxcode/dashboard-icons, como data URI. */
@@ -4682,8 +5202,45 @@
         );
       }
 
+      const HEALTH_COLORS = { ok: 'green', warning: 'yellow', error: 'yellow', down: 'red' };
+
+      /** Celular: un solo renglón con el estado de los servicios, en lugar de una tarjeta por servicio. */
+      function healthCard(parts) {
+        const health = servicesHealth(parts);
+        const card = el(
+          'button',
+          `health health-${health.level}`,
+          icon(health.level === 'ok' ? 'circle-check' : 'server', 26),
+          el('span', 'health-text', el('strong', null, health.title), el('span', null, health.text)),
+          icon('arrow-right', 18),
+        );
+        card.type = 'button';
+        card.title = 'Ver los servicios';
+        tinted(card, HEALTH_COLORS[health.level]);
+        card.addEventListener('click', () => showView('services'));
+        return card;
+      }
+
+      /**
+       * Overview del celu: resumen de servicios, acceso rápido de Jellyfin y red. Storage, descargas y pedidos quedan
+       * en sus vistas. El acceso rápido no se vuelve a insertar en cada actualización, para no cerrar el teclado.
+       */
+      function renderMobileOverview(status) {
+        $('health').hidden = false;
+        $('health').replaceChildren(healthCard(status.parts));
+        const quick = homeQuickPanel();
+        const network = networkPanel(status);
+        const panels = $('panels');
+        if (panels.firstChild === quick && panels.children.length === 2) panels.lastChild.replaceWith(network);
+        else panels.replaceChildren(quick, network);
+      }
+
       function renderOverview(status) {
         renderMetrics(status);
+        if (isMobile) {
+          renderMobileOverview(status);
+          return;
+        }
         $('monitored').textContent = servicesMonitored(status.parts);
         $('room').replaceChildren(...status.parts.map(serviceTile));
         $('panels').replaceChildren(
@@ -5001,7 +5558,7 @@
       }
 
       // --- Navegación ---
-      const MORE_VIEWS = ['storage', 'network', 'jellyfin', 'settings'];
+      const MORE_VIEWS = ['storage', 'network', 'jellyfin', 'devices', 'settings'];
 
       function showView(name) {
         for (const view of document.querySelectorAll('.view')) view.hidden = view.id !== `view-${name}`;
@@ -5013,6 +5570,8 @@
         else $('nav-more').removeAttribute('aria-current');
         document.body.dataset.view = name;
         if (name === 'jellyfin') loadJellyfin();
+        if (name === 'devices' && !isMobile) loadDevices();
+        if (name === 'overview') loadHomeJellyfin();
         setDrawer(false);
         setMoreMenu(false);
         window.scrollTo(0, 0);
@@ -5095,9 +5654,11 @@
 
       /** Corre una acción de formulario: desactiva el botón y muestra el error en pantalla. */
       async function runForm(button, errorNode, action, busyLabel) {
-        const label = button.textContent;
+        // Con ícono, solo cambia el texto: el ícono queda.
+        const target = button.querySelector('.button-label') ?? button;
+        const label = target.textContent;
         button.disabled = true;
-        button.textContent = busyLabel;
+        target.textContent = busyLabel;
         errorNode.textContent = '';
         try {
           await action();
@@ -5105,8 +5666,16 @@
           errorNode.textContent = error.message || 'Algo falló';
         } finally {
           button.disabled = false;
-          button.textContent = label;
+          target.textContent = label;
         }
+      }
+
+      /** Botón con ícono a la izquierda. El texto va en `.button-label`, para que `runForm` no borre el ícono. */
+      function iconActionButton(label, iconName, onClick, variant = null) {
+        const button = actionButton('', onClick, variant === 'primary');
+        if (variant && variant !== 'primary') button.classList.add(variant);
+        button.replaceChildren(icon(iconName, 16), el('span', 'button-label', label));
+        return button;
       }
 
       // --- Arranque ---
@@ -5380,7 +5949,7 @@
         scan.hidden = !canScanQr();
         showGate(
           el('h2', null, 'Emparejar con la PC'),
-          el('p', 'muted small', 'En la app de Windows, abrí Settings, "Celulares" y tocá "Emparejar un celular". Escaneá el QR o escribí el código. Con el celu en el Wi-Fi de casa, la PC se busca sola.'),
+          el('p', 'muted small', 'En la app de Windows, abrí "Celulares" y tocá "Emparejar un celular". Escaneá el QR o escribí el código. Con el celu en el Wi-Fi de casa, la PC se busca sola.'),
           name.node,
           code.node,
           host.node,
@@ -5570,21 +6139,71 @@
       // Siempre la última versión publicada: GitHub redirige este enlace al APK de la release más nueva.
       const APK_DOWNLOAD_URL = 'https://github.com/mmunozpatino/lp-media-center/releases/latest/download/LP-Cine-Vault.apk';
 
+      // Dibujos de adorno de las tarjetas de Celulares. Constantes de este archivo, nunca datos; se ocultan en pantallas angostas.
+      const DEVICE_ART = {
+        clapper: { viewBox: '0 0 130 104', body: '<use href="#art-clapper"/>' },
+        qr: {
+          viewBox: '0 0 170 150',
+          body:
+            '<defs><radialGradient id="dev-art-qr-glow"><stop offset="0" stop-color="#5aa8ff" stop-opacity="0.55"/><stop offset="1" stop-color="#9b5cff" stop-opacity="0"/></radialGradient></defs>' +
+            '<circle cx="100" cy="76" r="54" fill="url(#dev-art-qr-glow)"/>' +
+            '<g transform="rotate(14 100 75)">' +
+            '<rect x="66" y="6" width="68" height="138" rx="14" fill="#151129" stroke="#9b5cff" stroke-opacity="0.65" stroke-width="2"/>' +
+            '<rect x="72" y="14" width="56" height="122" rx="9" fill="#0d0a1c"/>' +
+            '<g fill="none" stroke="#7cc4ff" stroke-width="3" stroke-linecap="round"><path d="M83 62v-6h6M111 56h6v6M117 88v6h-6M89 94h-6v-6"/></g>' +
+            '<g fill="#b9dcff"><rect x="89" y="63" width="9" height="9" rx="1.5"/><rect x="102" y="63" width="9" height="9" rx="1.5"/><rect x="89" y="76" width="9" height="9" rx="1.5"/><rect x="102" y="77" width="4" height="4" rx="1"/><rect x="107" y="82" width="4" height="4" rx="1"/></g>' +
+            '</g>' +
+            '<g fill="none" stroke="#b48bff" stroke-width="3" stroke-linecap="round"><path d="M150 20l7-9M154 32l11-3"/></g>',
+        },
+        phone: {
+          viewBox: '0 0 180 260',
+          body:
+            '<g transform="rotate(16 90 130)">' +
+            '<rect x="40" y="20" width="100" height="210" rx="20" fill="#120f22" stroke="#9b5cff" stroke-opacity="0.6" stroke-width="2.5"/>' +
+            '<rect x="47" y="30" width="86" height="190" rx="14" fill="#0b0918"/>' +
+            '<rect x="73" y="98" width="34" height="34" rx="9" fill="#7c3aed"/>' +
+            '<path d="M85 106v18l14-9z" fill="#fff"/>' +
+            '<text x="90" y="152" text-anchor="middle" font-size="11" font-style="italic" font-family="Segoe UI, sans-serif" fill="#b48bff">' + PRODUCT_NAME + '</text>' +
+            '</g>',
+        },
+      };
+
+      function deviceArt(kind) {
+        const art = svgNode('svg', { class: 'dev-decor dev-decor-' + kind, viewBox: DEVICE_ART[kind].viewBox, 'aria-hidden': 'true', focusable: 'false' });
+        art.innerHTML = DEVICE_ART[kind].body;
+        return art;
+      }
+
+      /** Tarjeta de Celulares: ícono en un cuadrado violeta y, al lado, título, texto y botones. */
+      function deviceSectionCard(className, iconName, art, ...content) {
+        return el('article', 'card dev-card ' + className, art, el('span', 'dev-tile', icon(iconName, 24)), el('div', 'dev-card-body', ...content));
+      }
+
+      const DEVICE_KIND_ICON = { android: 'android', tablet: 'tablet', other: 'cpu' };
+
       /** Para un celular que todavía no tiene la app: QR con la descarga del APK, y el enlace para copiarlo. */
       function apkDownloadCard() {
-        return el(
-          'article',
-          'card',
+        const card = deviceSectionCard(
+          'dev-apk',
+          'qr-code',
+          deviceArt('phone'),
           el('h3', null, 'Bajar la app del celular'),
-          el('p', 'muted small', 'Si el celu o la tablet todavía no tiene ' + PRODUCT_NAME + ', escaneá el QR con la cámara para bajar la última versión. Al abrir el APK, Android pide permitir instalar apps desde el navegador.'),
+          el('p', 'muted', 'Si el celu o la tablet todavía no tiene ' + PRODUCT_NAME + ', escaneá el QR con la cámara para bajar la última versión. Al abrir el APK, Android pide permitir instalar apps desde el navegador.'),
+        );
+        card.append(
           el(
             'div',
-            'pair-box',
-            qrImage(APK_DOWNLOAD_URL, 'QR para bajar la app del celular'),
-            el('div', 'pair-code-row', el('span', 'apk-link muted small', 'github.com/…/LP-Cine-Vault.apk'), copyButton(APK_DOWNLOAD_URL, 'Copiar el enlace', 'Enlace copiado')),
+            'apk-body',
+            el('div', 'apk-qr-box', qrImage(APK_DOWNLOAD_URL, 'QR para bajar la app del celular')),
+            el(
+              'div',
+              'apk-side',
+              el('div', 'apk-pill', icon('link', 16), el('span', 'apk-link', 'github.com/…/LP-Cine-Vault.apk'), copyButton(APK_DOWNLOAD_URL, 'Copiar el enlace', 'Enlace copiado')),
+              iconActionButton('Abrir en el navegador', 'download', () => openInBrowser(APK_DOWNLOAD_URL)),
+            ),
           ),
-          el('div', 'row-actions', actionButton('Abrir en el navegador', () => openInBrowser(APK_DOWNLOAD_URL))),
         );
+        return card;
       }
 
       // --- Administrador de la app ---
@@ -5636,10 +6255,10 @@
         form.focus();
       }
 
-      /** Settings: quién es el administrador y cómo restablecer su contraseña sin saber la anterior. */
+      /** Celulares: quién es el administrador y cómo restablecer su contraseña sin saber la anterior. */
       function adminCard(setup) {
         const body = el('div');
-        const reset = actionButton('Restablecer contraseña', () => {
+        const reset = iconActionButton('Restablecer contraseña', 'refresh-cw', () => {
           const form = adminForm({
             user: setup.user ?? '',
             submitLabel: 'Guardar contraseña nueva',
@@ -5650,11 +6269,12 @@
           form.focus();
         });
         body.append(el('div', 'row-actions', reset));
-        return el(
-          'article',
-          'card',
+        return deviceSectionCard(
+          'dev-admin',
+          'shield-check',
+          deviceArt('clapper'),
           el('h3', null, `Administrador de ${PRODUCT_NAME}`),
-          el('p', 'muted small', `Usuario: ${setup.user ?? '—'}. Con esta cuenta entran los celulares y tablets, y se confirma lo delicado. Si te olvidaste la contraseña, restablecela desde acá: no hace falta saber la anterior.`),
+          el('p', 'muted', `Usuario: ${setup.user ?? '—'}. Con esta cuenta entran los celulares y tablets, y se confirma lo delicado. Si te olvidaste la contraseña, restablecela desde acá: no hace falta saber la anterior.`),
           body,
         );
       }
@@ -5682,35 +6302,32 @@
         }
         const count = setup.devices.length;
         $('devices-meta').textContent = !setup.hasPassword ? 'Falta crear la contraseña' : count === 1 ? '1 emparejado' : count + ' emparejados';
+        $('devices-meta').parentElement.dataset.state = !setup.hasPassword ? 'warning' : count === 0 ? 'empty' : 'ok';
 
         const error = el('p', 'form-error');
-        const cards = [];
 
-        cards.push(adminCard(setup));
-
-        const pair = actionButton('Emparejar un celular', async () => {
+        const pair = iconActionButton('Emparejar un celular', 'link', async () => {
           await runForm(pair, error, async () => loadDevices(await setupRequest('/api/setup/pairing', {})), 'Creando…');
-        }, setup.hasPassword);
+        }, setup.hasPassword ? 'primary' : null);
         pair.disabled = !setup.hasPassword;
         const network = lastStatus?.network;
         const pcAddress = network?.lanIp ?? network?.tailscaleIp ?? null;
-        cards.push(
-          el(
-            'article',
-            'card',
-            el('h3', null, 'Agregar un celular'),
-            shownCode ? pairCodeBlock(shownCode.code, pcAddress) : null,
-            shownCode
-              ? el('p', 'muted small', 'En la app del celular, tocá "Escanear QR" o escribí el código. Sirve una sola vez y vence en 10 minutos. Si el celu no encuentra la PC, usá la dirección ' + (network?.lanIp ?? 'de LAN') + (network?.tailscaleIp ? ' o, por Tailscale, ' + network.tailscaleIp : '') + '.')
-              : el('p', 'muted small', 'Crea un código de un solo uso para escribir en el celular.'),
-            el('div', 'row-actions', pair),
-          ),
-          apkDownloadCard(),
+        const pairCard = deviceSectionCard(
+          shownCode ? 'dev-pair has-code' : 'dev-pair',
+          'circle-plus',
+          shownCode ? null : deviceArt('qr'),
+          el('h3', null, 'Agregar un celular'),
+          shownCode ? pairCodeBlock(shownCode.code, pcAddress) : null,
+          shownCode
+            ? el('p', 'muted', 'En la app del celular, tocá "Escanear QR" o escribí el código. Sirve una sola vez y vence en 10 minutos. Si el celu no encuentra la PC, usá la dirección ' + (network?.lanIp ?? 'de LAN') + (network?.tailscaleIp ? ' o, por Tailscale, ' + network.tailscaleIp : '') + '.')
+            : el('p', 'muted', 'Crea un código de un solo uso para escribir en el celular.'),
+          el('div', 'row-actions', pair),
         );
 
+        const devices = [];
         for (const device of setup.devices) {
-          const info = el('div', null, el('h3', null, device.name), el('p', 'muted small', 'Desde el ' + new Date(device.createdAt).toLocaleDateString('es-AR')));
-          const rename = actionButton('Cambiar nombre', () => {
+          const info = el('div', 'dev-device-info', el('h3', null, device.name), el('p', 'muted', 'Desde el ' + new Date(device.createdAt).toLocaleDateString('es-AR')));
+          const rename = iconActionButton('Cambiar nombre', 'arrow-left-right', () => {
             const name = field('Nombre', 'text', device.name);
             name.input.maxLength = 60;
             const save = actionButton('Guardar', async () => {
@@ -5729,23 +6346,29 @@
             name.input.focus();
             name.input.select();
           });
-          const remove = actionButton('Quitar', async () => {
+          const remove = iconActionButton('Quitar', 'trash', async () => {
             if (!window.confirm('¿Quitar ' + device.name + '? Va a tener que emparejarse de nuevo.')) return;
             await runForm(remove, error, async () => {
               await setupRequest('/api/setup/devices/' + device.id + '/remove', {});
               await loadDevices();
             }, 'Quitando…');
-          });
-          cards.push(
+          }, 'danger-soft');
+          const kind = deviceKind(device.name);
+          const dot = el('span', 'devices-dot dev-device-dot');
+          dot.title = 'Emparejado';
+          devices.push(
             el(
               'article',
-              'card device-row',
+              'card dev-device dev-' + kind,
+              dot,
+              el('span', 'dev-device-tile', icon(DEVICE_KIND_ICON[kind], 34)),
               info,
-              el('div', 'row-actions', rename, remove),
+              el('div', 'dev-device-actions', rename, remove),
             ),
           );
         }
-        $('devices').replaceChildren(el('div', 'stack', ...cards, error));
+        const list = el('div', 'dev-list', ...(devices.length ? devices : [el('article', 'card dev-device dev-empty', el('p', 'muted', 'Todavía no hay celulares emparejados.'))]));
+        $('devices').replaceChildren(el('div', 'devices-grid', adminCard(setup), pairCard, apkDownloadCard(), list, error));
       }
 
       async function refresh() {
@@ -5766,6 +6389,7 @@
           render(lastStatus);
           hideSplash();
           if (document.body.dataset.view === 'jellyfin') loadJellyfin();
+          if (document.body.dataset.view === 'overview') loadHomeJellyfin();
           if (isMobile) renderConnection();
           $('banner').hidden = true;
           $('content').classList.remove('stale');
@@ -6037,7 +6661,7 @@
       if (isMobile) {
         startMobile();
       } else {
-        $('devices-section').hidden = false;
+        for (const node of document.querySelectorAll('[data-desktop-only]')) node.hidden = false;
         refresh().then(() => loadDevices());
       }
     </script>

@@ -7,9 +7,9 @@ import { describe, it } from 'node:test';
 // La interfaz es un solo HTML: se prueba la sección de textos, que no toca el DOM.
 const html = readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
 const textos = /--- Textos ---([\s\S]*)\/\/ --- Fin de textos ---/.exec(html)[1];
-const { isNewerVersion, pickReleaseAsset, tagFromReleaseUrl, releaseDownloadUrl, rateLimitedUntil, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote } =
+const { isNewerVersion, pickReleaseAsset, tagFromReleaseUrl, releaseDownloadUrl, rateLimitedUntil, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, deviceKind, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesHealth, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote } =
   new Function(
-    `${textos}; return { isNewerVersion, pickReleaseAsset, tagFromReleaseUrl, releaseDownloadUrl, rateLimitedUntil, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote };`,
+    `${textos}; return { isNewerVersion, pickReleaseAsset, tagFromReleaseUrl, releaseDownloadUrl, rateLimitedUntil, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, deviceKind, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesHealth, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote };`,
   )();
 
 const require = createRequire(import.meta.url);
@@ -220,14 +220,73 @@ describe('estructura de la interfaz', () => {
     assert.doesNotMatch(html, /fonts\.googleapis|<link /);
   });
 
-  it('tiene las siete vistas y conserva los botones de acción', () => {
-    for (const view of ['overview', 'services', 'downloads', 'requests', 'storage', 'network', 'settings']) {
+  it('tiene las vistas y conserva los botones de acción', () => {
+    for (const view of ['overview', 'services', 'downloads', 'requests', 'storage', 'network', 'jellyfin', 'devices', 'settings']) {
       assert.ok(html.includes(`id="view-${view}"`), view);
       assert.ok(html.includes(`data-view="${view}"`), view);
     }
     for (const id of ['stop-all', 'start-all', 'open-seerr', 'refresh', 'theme', 'banner', 'gate', 'devices', 'connection']) {
       assert.ok(html.includes(`id="${id}"`), id);
     }
+  });
+
+  it('Celulares es una vista propia, antes de Settings y solo en la app de Windows', () => {
+    const view = (name) => new RegExp(`<section id="view-${name}"[\\s\\S]*?</section>`).exec(html)[0];
+    assert.match(view('devices'), /id="devices-meta"/);
+    assert.match(view('devices'), /id="devices"/);
+    assert.match(view('devices'), /<h2>Celulares<\/h2>/);
+    assert.doesNotMatch(view('devices'), /view-head/);
+    assert.doesNotMatch(view('settings'), /devices|Celulares/);
+    // Barra lateral y menú "Más": ocultas al cargar, justo antes de Settings.
+    const entries = html.match(/<button[^>]*data-view="devices"[^>]*>.*<\/button>\s*<button[^>]*data-view="settings"/g);
+    assert.equal(entries?.length, 2);
+    for (const entry of entries) {
+      assert.match(entry, /data-desktop-only hidden/);
+      assert.match(entry, /data-icon="smartphone"/);
+      assert.match(entry, />Celulares</);
+    }
+    assert.match(html, /const MORE_VIEWS = \[[^\]]*'devices'/);
+    assert.match(html, /if \(name === 'devices' && !isMobile\) loadDevices\(\);/);
+    // Solo la rama de Windows las muestra.
+    const start = /if \(isMobile\) \{\s*startMobile\(\);\s*\} else \{([\s\S]*?)\}\s*<\/script>/.exec(html);
+    assert.match(start[1], /querySelectorAll\('\[data-desktop-only\]'\)\) node\.hidden = false/);
+    assert.equal(html.match(/data-desktop-only\]'\)\) node\.hidden = false/g).length, 1);
+    assert.doesNotMatch(html, /devices-section/);
+  });
+});
+
+describe('Overview del celu', () => {
+  it('resume los servicios: todo bien, o cuáles tienen problemas', () => {
+    const part = (name, state) => ({ name, state });
+    assert.deepEqual(servicesHealth([part('Radarr', 'ok'), part('Sonarr', 'ok')]), {
+      level: 'ok',
+      title: 'Todo funcionando',
+      text: 'Los 2 servicios responden bien',
+    });
+    assert.deepEqual(servicesHealth([part('Radarr', 'down'), part('Sonarr', 'ok'), part('Bazarr', 'warning')]), {
+      level: 'down',
+      title: '2 servicios con problemas: Radarr, Bazarr',
+      text: 'Radarr: no responde · Bazarr: con avisos',
+    });
+    const one = servicesHealth([part('Seerr', 'error'), part('Sonarr', 'ok')]);
+    assert.equal(one.level, 'warning');
+    assert.equal(one.title, '1 servicio con problemas: Seerr');
+    assert.equal(servicesHealth([]).level, 'error');
+  });
+
+  it('se distingue por la plataforma y no por el ancho, para que Windows no cambie', () => {
+    assert.match(html, /if \(isMobile\) document\.documentElement\.classList\.add\('app-android'\)/);
+    assert.match(html, /\.app-android #view-overview > \.room-head,\s*\.app-android #room \{\s*display: none;/);
+    assert.match(html, /<div id="health" class="health-wrap" hidden><\/div>/);
+    // Las reglas del Overview del celu no viven dentro de una media query de ancho.
+    const block = /\/\* --- Overview del celu[\s\S]*?\.quick-message\.failed/.exec(html)[0];
+    assert.doesNotMatch(block, /@media/);
+  });
+
+  it('el acceso rápido de Jellyfin se arma con el mismo código en la vista Jellyfin y en el Overview', () => {
+    assert.equal(html.match(/\/api\/jellyfin\/quick-connect/g).length, 1);
+    assert.match(html, /jellyfinQuick = createQuickConnect\(\)/);
+    assert.match(html, /homeQuick = createQuickConnect\(\)/);
   });
 });
 
@@ -559,5 +618,18 @@ describe('QR de emparejamiento', () => {
     const { path, size } = qrSvgPath([[true, false], [false, true]]);
     assert.equal(size, 10);
     assert.equal(path, 'M4 4h1v1h-1zM5 5h1v1h-1z');
+  });
+});
+
+describe('celulares', () => {
+  it('elige el ícono de cada dispositivo por su nombre, y si no dice nada usa uno genérico', () => {
+    assert.equal(deviceKind('Celular Android'), 'android');
+    assert.equal(deviceKind('Celu de ejemplo'), 'android');
+    assert.equal(deviceKind('Pixel 9'), 'android');
+    assert.equal(deviceKind('Tablet de ejemplo'), 'tablet');
+    assert.equal(deviceKind('Galaxy Tab S9'), 'tablet');
+    assert.equal(deviceKind('Equipo de ejemplo'), 'other');
+    assert.equal(deviceKind(''), 'other');
+    assert.equal(deviceKind(null), 'other');
   });
 });
