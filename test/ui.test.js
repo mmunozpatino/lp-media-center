@@ -220,14 +220,38 @@ describe('estructura de la interfaz', () => {
     assert.doesNotMatch(html, /fonts\.googleapis|<link /);
   });
 
-  it('tiene las siete vistas y conserva los botones de acción', () => {
-    for (const view of ['overview', 'services', 'downloads', 'requests', 'storage', 'network', 'settings']) {
+  it('tiene las vistas y conserva los botones de acción', () => {
+    for (const view of ['overview', 'services', 'downloads', 'requests', 'storage', 'network', 'jellyfin', 'devices', 'settings']) {
       assert.ok(html.includes(`id="view-${view}"`), view);
       assert.ok(html.includes(`data-view="${view}"`), view);
     }
     for (const id of ['stop-all', 'start-all', 'open-seerr', 'refresh', 'theme', 'banner', 'gate', 'devices', 'connection']) {
       assert.ok(html.includes(`id="${id}"`), id);
     }
+  });
+
+  it('Celulares es una vista propia, antes de Settings y solo en la app de Windows', () => {
+    const view = (name) => new RegExp(`<section id="view-${name}"[\\s\\S]*?</section>`).exec(html)[0];
+    assert.match(view('devices'), /id="devices-meta"/);
+    assert.match(view('devices'), /id="devices"/);
+    assert.match(view('devices'), /<h2>Celulares<\/h2>/);
+    assert.doesNotMatch(view('devices'), /view-head/);
+    assert.doesNotMatch(view('settings'), /devices|Celulares/);
+    // Barra lateral y menú "Más": ocultas al cargar, justo antes de Settings.
+    const entries = html.match(/<button[^>]*data-view="devices"[^>]*>.*<\/button>\s*<button[^>]*data-view="settings"/g);
+    assert.equal(entries?.length, 2);
+    for (const entry of entries) {
+      assert.match(entry, /data-desktop-only hidden/);
+      assert.match(entry, /data-icon="smartphone"/);
+      assert.match(entry, />Celulares</);
+    }
+    assert.match(html, /const MORE_VIEWS = \[[^\]]*'devices'/);
+    assert.match(html, /if \(name === 'devices' && !isMobile\) loadDevices\(\);/);
+    // Solo la rama de Windows las muestra.
+    const start = /if \(isMobile\) \{\s*startMobile\(\);\s*\} else \{([\s\S]*?)\}\s*<\/script>/.exec(html);
+    assert.match(start[1], /querySelectorAll\('\[data-desktop-only\]'\)\) node\.hidden = false/);
+    assert.equal(html.match(/data-desktop-only\]'\)\) node\.hidden = false/g).length, 1);
+    assert.doesNotMatch(html, /devices-section/);
   });
 });
 

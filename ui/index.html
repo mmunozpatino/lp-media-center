@@ -1930,7 +1930,7 @@
         background: #fff;
       }
 
-      /* --- Celulares (Settings, solo en la app de Windows) --- */
+      /* --- Celulares (vista propia, solo en la app de Windows) --- */
       .devices-head {
         display: flex;
         flex-wrap: wrap;
@@ -2991,6 +2991,8 @@
         <button type="button" class="nav-item secondary" data-view="storage"><span data-icon="database"></span>Storage</button>
         <button type="button" class="nav-item secondary" data-view="network"><span data-icon="wifi"></span>Network</button>
         <button type="button" class="nav-item secondary" data-view="jellyfin"><span data-icon="tv"></span>Jellyfin</button>
+        <!-- Celulares: solo en la app de Windows. Se muestra al arrancar si no es el celu. -->
+        <button type="button" class="nav-item secondary" data-view="devices" data-desktop-only hidden><span data-icon="smartphone"></span>Celulares</button>
         <button type="button" class="nav-item secondary" data-view="settings"><span data-icon="settings"></span>Settings</button>
         <!-- Solo en celular: la barra de abajo muestra 4 secciones y "Más" abre las otras. -->
         <button type="button" id="nav-more" class="nav-more" aria-haspopup="true" aria-expanded="false" aria-controls="more-menu"><span data-icon="ellipsis"></span>Más</button>
@@ -2999,6 +3001,7 @@
         <button type="button" class="nav-item" data-view="storage"><span data-icon="database"></span>Storage</button>
         <button type="button" class="nav-item" data-view="network"><span data-icon="wifi"></span>Network</button>
         <button type="button" class="nav-item" data-view="jellyfin"><span data-icon="tv"></span>Jellyfin</button>
+        <button type="button" class="nav-item" data-view="devices" data-desktop-only hidden><span data-icon="smartphone"></span>Celulares</button>
         <button type="button" class="nav-item" data-view="settings"><span data-icon="settings"></span>Settings</button>
       </div>
       <div class="side-art">
@@ -3111,6 +3114,19 @@
             <div id="jellyfin"></div>
           </section>
 
+          <!-- Solo en la app de Windows: su encabezado hace de título de la vista. -->
+          <section id="view-devices" class="view" hidden>
+            <div class="devices-head">
+              <span class="devices-head-icon"><span data-icon="smartphone" data-size="28"></span></span>
+              <div class="devices-head-text">
+                <h2>Celulares</h2>
+                <p class="muted">Gestiona y configura tus dispositivos</p>
+              </div>
+              <span class="devices-pill"><span class="devices-dot" aria-hidden="true"></span><span id="devices-meta"></span></span>
+            </div>
+            <div id="devices"></div>
+          </section>
+
           <section id="view-settings" class="view" hidden>
             <div class="view-head">
               <div class="view-title"><h2>Settings</h2></div>
@@ -3139,17 +3155,6 @@
             <div class="settings-block">
               <div class="view-title settings-sub"><h2>Novedades</h2></div>
               <div id="news" class="news-history"></div>
-            </div>
-            <div class="settings-block" id="devices-section" hidden>
-              <div class="devices-head">
-                <span class="devices-head-icon"><span data-icon="smartphone" data-size="28"></span></span>
-                <div class="devices-head-text">
-                  <h2>Celulares</h2>
-                  <p class="muted">Gestiona y configura tus dispositivos</p>
-                </div>
-                <span class="devices-pill"><span class="devices-dot" aria-hidden="true"></span><span id="devices-meta"></span></span>
-              </div>
-              <div id="devices"></div>
             </div>
             <div class="settings-block" id="connection-section" hidden>
               <div class="view-title settings-sub"><h2>Conexión con la PC</h2><span id="connection-meta" class="muted small"></span></div>
@@ -5389,7 +5394,7 @@
       }
 
       // --- Navegación ---
-      const MORE_VIEWS = ['storage', 'network', 'jellyfin', 'settings'];
+      const MORE_VIEWS = ['storage', 'network', 'jellyfin', 'devices', 'settings'];
 
       function showView(name) {
         for (const view of document.querySelectorAll('.view')) view.hidden = view.id !== `view-${name}`;
@@ -5401,6 +5406,7 @@
         else $('nav-more').removeAttribute('aria-current');
         document.body.dataset.view = name;
         if (name === 'jellyfin') loadJellyfin();
+        if (name === 'devices' && !isMobile) loadDevices();
         setDrawer(false);
         setMoreMenu(false);
         window.scrollTo(0, 0);
@@ -5778,7 +5784,7 @@
         scan.hidden = !canScanQr();
         showGate(
           el('h2', null, 'Emparejar con la PC'),
-          el('p', 'muted small', 'En la app de Windows, abrí Settings, "Celulares" y tocá "Emparejar un celular". Escaneá el QR o escribí el código. Con el celu en el Wi-Fi de casa, la PC se busca sola.'),
+          el('p', 'muted small', 'En la app de Windows, abrí "Celulares" y tocá "Emparejar un celular". Escaneá el QR o escribí el código. Con el celu en el Wi-Fi de casa, la PC se busca sola.'),
           name.node,
           code.node,
           host.node,
@@ -6084,7 +6090,7 @@
         form.focus();
       }
 
-      /** Settings: quién es el administrador y cómo restablecer su contraseña sin saber la anterior. */
+      /** Celulares: quién es el administrador y cómo restablecer su contraseña sin saber la anterior. */
       function adminCard(setup) {
         const body = el('div');
         const reset = iconActionButton('Restablecer contraseña', 'refresh-cw', () => {
@@ -6489,7 +6495,7 @@
       if (isMobile) {
         startMobile();
       } else {
-        $('devices-section').hidden = false;
+        for (const node of document.querySelectorAll('[data-desktop-only]')) node.hidden = false;
         refresh().then(() => loadDevices());
       }
     </script>
