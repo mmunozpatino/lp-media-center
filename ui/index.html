@@ -2878,21 +2878,53 @@
       /** { version, commit } de esta app, o null si es de desarrollo. Se lee una sola vez. */
       const loadBuildInfo = () => (buildInfo ??= bundledJson('build-info.json'));
 
+      // La API de GitHub permite 60 consultas por hora sin autenticar, contadas por IP pública: las comparten la PC, el celu
+      // y la tablet. Por eso la última versión sale de la redirección de github.com/…/releases/latest, que no tiene ese
+      // límite y la lee la parte nativa (la pantalla no puede leer github.com). La API se consulta solo cuando hay una
+      // versión nueva, para sus novedades, y nunca mientras dure un corte por el límite.
+      let apiLimitedUntil = 0;
+
+      /** "v0.1.15" de la redirección, por Electron o por el plugin de Android. undefined si no hay parte nativa. */
+      async function nativeLatestTag() {
+        if (typeof window.lpDesktop?.latestVersion === 'function') return (await window.lpDesktop.latestVersion()).tag;
+        if (isMobile && window.Capacitor?.nativePromise) return (await window.Capacitor.nativePromise('LpNetwork', 'latestVersion', {})).tag;
+        return undefined;
+      }
+
+      /** La release por la API. { release } o { limitedUntil }. Falla si no se pudo consultar. */
+      async function releaseFromApi() {
+        if (Date.now() < apiLimitedUntil) return { limitedUntil: apiLimitedUntil };
+        const response = await fetch(RELEASES_API, {
+          headers: { Accept: 'application/vnd.github+json' },
+          cache: 'no-store',
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+        const limited = rateLimitedUntil(response.status, response.headers);
+        if (limited) {
+          apiLimitedUntil = limited;
+          return { limitedUntil: limited };
+        }
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return { release: await response.json() };
+      }
+
       /**
-       * Busca en GitHub. state: 'dev' (sin build-info.json), 'error' (no se pudo consultar), 'current' (está al
-       * día) o 'available', con version, url y notes.
+       * Busca en GitHub. state: 'dev' (sin build-info.json), 'error' (no se pudo consultar), 'limited' (la API cortó por
+       * su límite; trae limitedUntil), 'current' (está al día) o 'available', con version, url y notes.
        */
       async function findUpdate() {
         const current = await loadBuildInfo();
         if (!current?.version) return { state: 'dev' };
         try {
-          const response = await fetch(RELEASES_API, {
-            headers: { Accept: 'application/vnd.github+json' },
-            cache: 'no-store',
-            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-          });
-          if (!response.ok) return { state: 'error' };
-          const release = await response.json();
+          const tag = await nativeLatestTag();
+          if (tag && !isNewerVersion(tag, current.version)) return { state: 'current', version: current.version };
+          const fromApi = await releaseFromApi();
+          if (fromApi.limitedUntil) {
+            // Sin la API igual se sabe que hay una nueva y se puede bajar; solo faltan las novedades.
+            if (!tag) return { state: 'limited', limitedUntil: fromApi.limitedUntil };
+            return { state: 'available', version: tag.replace(/^v/, ''), url: releaseDownloadUrl(tag, isMobile), notes: { titles: [], more: 0 } };
+          }
+          const release = fromApi.release;
           if (!isNewerVersion(release.tag_name, current.version)) return { state: 'current', version: current.version };
           const asset = pickReleaseAsset(release.assets, isMobile);
           // Publicada sin el archivo de este equipo: para él, todavía no hay nada nuevo.
@@ -4127,6 +4159,34 @@
       function pickReleaseAsset(assets, mobile) {
         const extension = mobile ? '.apk' : '.exe';
         return (assets ?? []).find((asset) => String(asset.name).toLowerCase().endsWith(extension)) ?? null;
+      }
+
+      /**
+       * La versión de la redirección de github.com/<repo>/releases/latest, que no tiene el límite de la API:
+       * ".../releases/tag/v0.1.15" → "v0.1.15". Cualquier otra cosa, null.
+       */
+      function tagFromReleaseUrl(url) {
+        const match = /^(?:https:\/\/github\.com)?\/mmunozpatino\/lp-media-center\/releases\/tag\/(v\d+(?:\.\d+){1,3})\/?$/.exec(String(url ?? ''));
+        return match ? match[1] : null;
+      }
+
+      /** Descarga directa de un archivo de una versión, sin pasar por la API. */
+      function releaseDownloadUrl(tag, mobile) {
+        return `https://github.com/mmunozpatino/lp-media-center/releases/download/${tag}/${mobile ? 'LP-Cine-Vault.apk' : 'LP-Cine-Vault-Setup.exe'}`;
+      }
+
+      /**
+       * Si la API de GitHub cortó por su límite de consultas sin autenticar (60 por hora por IP pública): hasta cuándo, en
+       * milisegundos. Null si la respuesta no es eso. `headers` es un Headers o algo con get().
+       */
+      function rateLimitedUntil(status, headers, now = Date.now()) {
+        const remaining = headers?.get?.('x-ratelimit-remaining');
+        if (status !== 429 && !(status === 403 && remaining === '0')) return null;
+        const reset = Number(headers?.get?.('x-ratelimit-reset'));
+        const retry = Number(headers?.get?.('retry-after'));
+        if (Number.isFinite(reset) && reset > 0) return reset * 1000;
+        if (Number.isFinite(retry) && retry > 0) return now + retry * 1000;
+        return now + 60 * 60 * 1000;
       }
 
       /** changelog.json (lo arma scripts/changelog.mjs) limpio: versiones válidas, de la más nueva a la más vieja. */
@@ -5816,6 +5876,9 @@
             result.replaceChildren(el('span', null, 'Hay una versión nueva: ' + update.version + '. '), updateButton(update, status), status);
           } else if (update.state === 'current') {
             result.textContent = 'Ya tenés la última versión.';
+          } else if (update.state === 'limited') {
+            const hour = new Date(update.limitedUntil).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+            result.textContent = `GitHub limitó las consultas por un rato: no es tu conexión. Probá de nuevo después de las ${hour}.`;
           } else {
             result.textContent = 'No se pudo consultar GitHub. Revisá la conexión a internet y probá de nuevo.';
           }

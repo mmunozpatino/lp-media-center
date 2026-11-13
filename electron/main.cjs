@@ -4,7 +4,7 @@ const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow, ipcMain, Menu, net, protocol, shell } = require('electron');
 const { startBackend } = require('./backend.cjs');
 const { isReleaseUrl, isSeerrUrl, isServiceUrl } = require('./seerr-url.cjs');
-const { installLatest } = require('./updater.cjs');
+const { installLatest, latestTagWithNet } = require('./updater.cjs');
 
 // La interfaz se sirve como app://lp-media-center, el único origen que acepta el backend. No se marca
 // como `secure`: la app va a pedirle datos por HTTP a la IP de LAN, y un origen seguro lo bloquearía.
@@ -150,6 +150,15 @@ if (!app.requestSingleInstanceLock()) {
     Menu.setApplicationMenu(null);
     protocol.handle('app', serveUi);
     ipcMain.handle('lp:install-update', handleInstallUpdate);
+    // La última versión, de la redirección de github.com (sin el límite de la API). Solo para la interfaz de la app.
+    ipcMain.handle('lp:latest-version', async (event) => {
+      if (!event.senderFrame?.url?.startsWith(`app://${APP_HOST}/`)) return { ok: false, message: 'Pedido no permitido.' };
+      try {
+        return { ok: true, tag: await latestTagWithNet(net) };
+      } catch (error) {
+        return { ok: false, message: error.message };
+      }
+    });
     createMainWindow();
   });
   app.on('window-all-closed', () => app.quit());

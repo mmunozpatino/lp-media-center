@@ -178,6 +178,20 @@ public class LpNetworkPlugin extends Plugin {
         });
     }
 
+    /** { tag: "v0.1.15" }: la última versión publicada, de la redirección de github.com (sin el límite de la API). */
+    @PluginMethod
+    public void latestVersion(PluginCall call) {
+        updates.execute(() -> {
+            try {
+                JSObject result = new JSObject();
+                result.put("tag", AppUpdater.latestTag());
+                call.resolve(result);
+            } catch (Exception e) {
+                call.reject(e instanceof IOException && e.getMessage() != null ? e.getMessage() : "No se pudo consultar GitHub.");
+            }
+        });
+    }
+
     /** La versión instalada, la que pone el workflow. Null si es de desarrollo. */
     private String currentVersion() {
         try {

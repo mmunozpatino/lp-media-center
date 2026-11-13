@@ -77,11 +77,46 @@ final class AppUpdater {
         return numbers;
     }
 
+    static final String LATEST_PAGE = "https://github.com/" + REPO + "/releases/latest";
+    private static final Pattern TAG = Pattern.compile("^(?:https://github\\.com)?/mmunozpatino/lp-media-center/releases/tag/(v\\d+(?:\\.\\d+){1,3})/?$");
+
+    /**
+     * La última versión sin la API (que tiene un límite de 60 consultas por hora por IP): github.com redirige
+     * /releases/latest a la página de esa versión. Se pide solo la cabecera, sin seguir la redirección.
+     */
+    static String latestTag() throws Exception {
+        HttpURLConnection connection = open(LATEST_PAGE);
+        connection.setInstanceFollowRedirects(false);
+        connection.setRequestMethod("HEAD");
+        int code = connection.getResponseCode();
+        Matcher tag = TAG.matcher(String.valueOf(connection.getHeaderField("Location")));
+        connection.disconnect();
+        if (code < 300 || code > 308 || !tag.matches()) throw new IOException("GitHub no informó la última versión.");
+        return tag.group(1);
+    }
+
+    /** Si la API cortó por su límite: un mensaje con la hora para volver a probar. Null si no es eso. */
+    static String rateLimitMessage(HttpURLConnection connection, int code) {
+        String remaining = connection.getHeaderField("X-RateLimit-Remaining");
+        if (code != 429 && !(code == 403 && "0".equals(remaining))) return null;
+        String hour = null;
+        try {
+            long reset = Long.parseLong(connection.getHeaderField("X-RateLimit-Reset"));
+            hour = new java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(new java.util.Date(reset * 1000));
+        } catch (Exception ignored) {
+            // Sin la hora, se dice "en una hora".
+        }
+        return "GitHub limitó las consultas por un rato: no es tu conexión. "
+                + (hour != null ? "Probá de nuevo después de las " + hour + "." : "Probá de nuevo en una hora.");
+    }
+
     /** El APK de la última versión publicada, ya validado. */
     static Release latest() throws Exception {
         HttpURLConnection connection = open(RELEASES_API);
         connection.setRequestProperty("Accept", "application/vnd.github+json");
         int code = connection.getResponseCode();
+        String limited = rateLimitMessage(connection, code);
+        if (limited != null) throw new IOException(limited);
         if (code != 200) throw new IOException("GitHub respondió " + code + " al buscar la versión nueva.");
         JSONObject release = new JSONObject(readAll(connection.getInputStream()));
         JSONArray assets = release.optJSONArray("assets");

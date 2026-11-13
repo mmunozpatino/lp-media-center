@@ -114,3 +114,44 @@ test('no instala si ya está al día, si es de desarrollo o si la huella falla',
   altered[0] ^= 1;
   await assert.rejects(installLatest({ currentVersion: '0.1.6', tempDir: tempDir(), fetchImpl: fakeFetch({ bytes: altered }).fetchImpl, launch }), /huella/);
 });
+
+test('lee la última versión de la redirección, sin seguirla ni usar la API', async () => {
+  const { fetchLatestTag, tagFromLocation } = require('../electron/updater.cjs');
+  assert.equal(tagFromLocation('https://github.com/mmunozpatino/lp-media-center/releases/tag/v0.1.15'), 'v0.1.15');
+  assert.equal(tagFromLocation('https://github.com/otra/repo/releases/tag/v9.9.9'), null);
+  const seen = [];
+  const redirect = async (url, options) => (seen.push([url, options.method, options.redirect]), new Response(null, { status: 302, headers: { location: 'https://github.com/mmunozpatino/lp-media-center/releases/tag/v0.1.15' } }));
+  assert.equal(await fetchLatestTag(redirect), 'v0.1.15');
+  assert.deepEqual(seen, [['https://github.com/mmunozpatino/lp-media-center/releases/latest', 'HEAD', 'manual']]);
+  await assert.rejects(fetchLatestTag(async () => new Response('', { status: 200 })), /no informó/);
+  await assert.rejects(fetchLatestTag(async () => new Response(null, { status: 302, headers: { location: 'https://evil.example/x' } })), /no informó/);
+});
+
+test('si la API cortó por su límite, lo dice con la hora y no instala', async () => {
+  const limited = async () => new Response('{"message":"API rate limit exceeded"}', { status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1800000000' } });
+  await assert.rejects(
+    installLatest({ currentVersion: '0.1.6', tempDir: tempDir(), fetchImpl: limited, launch: () => assert.fail('no debería instalar') }),
+    /GitHub limitó las consultas.*después de las/,
+  );
+  // Sin digest no se instala, aunque la versión sea nueva.
+  const sinHuella = async (url) => (url.startsWith('https://api.github.com/') ? Response.json(release({ digest: null })) : new Response('', { status: 404 }));
+  await assert.rejects(installLatest({ currentVersion: '0.1.6', tempDir: tempDir(), fetchImpl: sinHuella, launch: () => assert.fail('no debería instalar') }), /huella/);
+});
+
+test('con net de Electron: toma el destino de la redirección sin seguirla', async () => {
+  const { EventEmitter } = require('node:events');
+  const { latestTagWithNet } = require('../electron/updater.cjs');
+  const fakeNet = (event, ...args) => ({
+    request(options) {
+      assert.deepEqual(options, { url: 'https://github.com/mmunozpatino/lp-media-center/releases/latest', method: 'HEAD', redirect: 'manual' });
+      const request = new EventEmitter();
+      request.abort = () => {};
+      request.end = () => setImmediate(() => request.emit(event, ...args));
+      return request;
+    },
+  });
+  assert.equal(await latestTagWithNet(fakeNet('redirect', 302, 'HEAD', 'https://github.com/mmunozpatino/lp-media-center/releases/tag/v0.1.15')), 'v0.1.15');
+  await assert.rejects(latestTagWithNet(fakeNet('redirect', 302, 'HEAD', 'https://evil.example/releases/tag/v9.0.0')), /no informó/);
+  await assert.rejects(latestTagWithNet(fakeNet('response', {})), /no informó/);
+  await assert.rejects(latestTagWithNet(fakeNet('error', new Error('x'))), /No se pudo/);
+});

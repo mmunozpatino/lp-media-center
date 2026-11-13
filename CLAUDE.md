@@ -265,7 +265,17 @@ En los tests van IP y nombres de ejemplo. Los commits usan el mail privado de Gi
   la versión `v0.1.<número de corrida>` con los dos archivos.
 - **Versión de cada app:** `scripts/build-info.mjs` escribe `ui/build-info.json`, que no se commitea. Sin ese archivo, la app es
   de desarrollo y no busca actualizaciones.
-- **Aviso:** la app consulta `api.github.com` al abrir y cada 6 horas, y cuando se pide en Settings, "Versión", con "Buscar
+- **Límite de la API de GitHub:** 60 consultas por hora sin autenticar, contadas por IP pública y compartidas por la PC, el
+  celu, la tablet y las pruebas. El 2026-11-13 se agotó y "Buscar actualizaciones" dijo que fallaba la conexión. Desde
+  entonces la última versión sale de la redirección de `github.com/<repo>/releases/latest` a `/releases/tag/vX.Y.Z`, que no
+  tiene ese límite. La pantalla no puede leer github.com (CORS), así que lo hace la parte nativa: `latestTagWithNet` en
+  `electron/updater.cjs` con `net.request` (`net.fetch` con `redirect: 'manual'` cancela la redirección; probado) y
+  `latestVersion` del plugin (`AppUpdater.latestTag`, `HEAD` sin seguir la redirección). La API se pide solo si hay una
+  versión nueva, para las novedades; si corta por el límite (403 con `X-RateLimit-Remaining: 0`, o 429), `rateLimitedUntil`
+  guarda hasta cuándo, no se vuelve a consultar antes y Settings lo dice con la hora. Igual se ofrece la descarga directa
+  (`releaseDownloadUrl`). Instalar sigue pidiendo la API para el `digest`: si está limitada, los instaladores lo dicen con
+  la hora y no instalan. La CSP no cambia: `connect-src` sigue con solo `https://api.github.com`.
+- **Aviso:** la app consulta GitHub al abrir y cada 6 horas, y cuando se pide en Settings, "Versión", con "Buscar
   actualizaciones" (ahí el aviso aparece aunque se haya tocado "Más tarde"). Si hay una más nueva, ofrece descargarla: en Android el
   APK con "Actualizar ahora" (`AppUpdater.java` y `installUpdate` de `LpNetworkPlugin`): misma validación que en Windows, baja a la
   caché y abre el cartel de Android con el FileProvider, que siempre pide confirmar. La primera vez abre el ajuste "instalar apps

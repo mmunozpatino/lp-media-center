@@ -85,6 +85,63 @@ async function downloadInstaller(installer, file, { fetchImpl, onProgress = () =
   }
 }
 
+const LATEST_PAGE = `https://github.com/${REPO}/releases/latest`;
+
+/** "v0.1.15" de la redirección de /releases/latest ("…/releases/tag/v0.1.15"). Null si no es eso. */
+function tagFromLocation(location) {
+  const match = /^(?:https:\/\/github\.com)?\/mmunozpatino\/lp-media-center\/releases\/tag\/(v\d+(?:\.\d+){1,3})\/?$/.exec(String(location ?? ''));
+  return match ? match[1] : null;
+}
+
+/**
+ * La última versión sin la API, que tiene un límite de 60 consultas por hora por IP: github.com redirige
+ * /releases/latest a la página de esa versión. Se pide solo la cabecera, sin seguir la redirección.
+ */
+async function fetchLatestTag(fetchImpl) {
+  const response = await fetchImpl(LATEST_PAGE, { method: 'HEAD', redirect: 'manual' });
+  const tag = tagFromLocation(response.headers.get('location'));
+  if (![301, 302, 303, 307, 308].includes(response.status) || !tag) throw new Error('GitHub no informó la última versión.');
+  return tag;
+}
+
+/**
+ * Lo mismo con `net` de Electron: net.fetch cancela las redirecciones con redirect 'manual', así que se usa net.request,
+ * que avisa la redirección y su destino sin seguirla.
+ */
+function latestTagWithNet(net, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const request = net.request({ url: LATEST_PAGE, method: 'HEAD', redirect: 'manual' });
+    const timer = setTimeout(() => {
+      request.abort();
+      reject(new Error('GitHub no respondió.'));
+    }, timeoutMs);
+    const finish = (error, tag) => {
+      clearTimeout(timer);
+      request.abort();
+      if (error) reject(error);
+      else resolve(tag);
+    };
+    request.on('redirect', (_status, _method, redirectUrl) => {
+      const tag = tagFromLocation(redirectUrl);
+      finish(tag ? null : new Error('GitHub no informó la última versión.'), tag);
+    });
+    request.on('response', () => finish(new Error('GitHub no informó la última versión.')));
+    request.on('error', () => finish(new Error('No se pudo consultar GitHub.')));
+    request.end();
+  });
+}
+
+/** Si la API cortó por su límite: un mensaje con la hora para volver a probar. Null si no es eso. */
+function rateLimitMessage(response) {
+  const remaining = response.headers.get('x-ratelimit-remaining');
+  if (response.status !== 429 && !(response.status === 403 && remaining === '0')) return null;
+  const reset = Number(response.headers.get('x-ratelimit-reset'));
+  const hour = Number.isFinite(reset) && reset > 0
+    ? new Date(reset * 1000).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })
+    : null;
+  return `GitHub limitó las consultas por un rato: no es tu conexión.${hour ? ` Probá de nuevo después de las ${hour}.` : ' Probá de nuevo en una hora.'}`;
+}
+
 /**
  * Busca, baja e instala. `currentVersion` sale de build-info.json; sin ella es una app de desarrollo.
  * Devuelve { version } cuando el instalador ya arrancó; la app se cierra sola poco después.
@@ -92,6 +149,8 @@ async function downloadInstaller(installer, file, { fetchImpl, onProgress = () =
 async function installLatest({ currentVersion, tempDir, fetchImpl, onProgress, launch = launchInstaller }) {
   if (!currentVersion) throw new Error('Esta es una versión de desarrollo: no se actualiza sola.');
   const response = await fetchImpl(RELEASES_API, { headers: { Accept: 'application/vnd.github+json' } });
+  const limited = rateLimitMessage(response);
+  if (limited) throw new Error(limited);
   if (!response.ok) throw new Error(`GitHub respondió ${response.status} al buscar la versión nueva.`);
   const installer = pickInstaller(await response.json());
   if (!isNewerVersion(installer.version, currentVersion)) throw new Error('Ya tenés la última versión.');
@@ -109,4 +168,14 @@ function launchInstaller(file) {
   child.unref();
 }
 
-module.exports = { INSTALLER_ARGS, downloadInstaller, installLatest, isNewerVersion, pickInstaller };
+module.exports = {
+  INSTALLER_ARGS,
+  downloadInstaller,
+  fetchLatestTag,
+  latestTagWithNet,
+  installLatest,
+  isNewerVersion,
+  pickInstaller,
+  rateLimitMessage,
+  tagFromLocation,
+};
