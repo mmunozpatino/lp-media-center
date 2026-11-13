@@ -7,9 +7,9 @@ import { describe, it } from 'node:test';
 // La interfaz es un solo HTML: se prueba la sección de textos, que no toca el DOM.
 const html = readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
 const textos = /--- Textos ---([\s\S]*)\/\/ --- Fin de textos ---/.exec(html)[1];
-const { isNewerVersion, pickReleaseAsset, tagFromReleaseUrl, releaseDownloadUrl, rateLimitedUntil, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, deviceKind, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote } =
+const { isNewerVersion, pickReleaseAsset, tagFromReleaseUrl, releaseDownloadUrl, rateLimitedUntil, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, deviceKind, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesHealth, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote } =
   new Function(
-    `${textos}; return { isNewerVersion, pickReleaseAsset, tagFromReleaseUrl, releaseDownloadUrl, rateLimitedUntil, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, deviceKind, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote };`,
+    `${textos}; return { isNewerVersion, pickReleaseAsset, tagFromReleaseUrl, releaseDownloadUrl, rateLimitedUntil, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, deviceKind, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesHealth, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote };`,
   )();
 
 const require = createRequire(import.meta.url);
@@ -252,6 +252,41 @@ describe('estructura de la interfaz', () => {
     assert.match(start[1], /querySelectorAll\('\[data-desktop-only\]'\)\) node\.hidden = false/);
     assert.equal(html.match(/data-desktop-only\]'\)\) node\.hidden = false/g).length, 1);
     assert.doesNotMatch(html, /devices-section/);
+  });
+});
+
+describe('Overview del celu', () => {
+  it('resume los servicios: todo bien, o cuáles tienen problemas', () => {
+    const part = (name, state) => ({ name, state });
+    assert.deepEqual(servicesHealth([part('Radarr', 'ok'), part('Sonarr', 'ok')]), {
+      level: 'ok',
+      title: 'Todo funcionando',
+      text: 'Los 2 servicios responden bien',
+    });
+    assert.deepEqual(servicesHealth([part('Radarr', 'down'), part('Sonarr', 'ok'), part('Bazarr', 'warning')]), {
+      level: 'down',
+      title: '2 servicios con problemas: Radarr, Bazarr',
+      text: 'Radarr: no responde · Bazarr: con avisos',
+    });
+    const one = servicesHealth([part('Seerr', 'error'), part('Sonarr', 'ok')]);
+    assert.equal(one.level, 'warning');
+    assert.equal(one.title, '1 servicio con problemas: Seerr');
+    assert.equal(servicesHealth([]).level, 'error');
+  });
+
+  it('se distingue por la plataforma y no por el ancho, para que Windows no cambie', () => {
+    assert.match(html, /if \(isMobile\) document\.documentElement\.classList\.add\('app-android'\)/);
+    assert.match(html, /\.app-android #view-overview > \.room-head,\s*\.app-android #room \{\s*display: none;/);
+    assert.match(html, /<div id="health" class="health-wrap" hidden><\/div>/);
+    // Las reglas del Overview del celu no viven dentro de una media query de ancho.
+    const block = /\/\* --- Overview del celu[\s\S]*?\.quick-message\.failed/.exec(html)[0];
+    assert.doesNotMatch(block, /@media/);
+  });
+
+  it('el acceso rápido de Jellyfin se arma con el mismo código en la vista Jellyfin y en el Overview', () => {
+    assert.equal(html.match(/\/api\/jellyfin\/quick-connect/g).length, 1);
+    assert.match(html, /jellyfinQuick = createQuickConnect\(\)/);
+    assert.match(html, /homeQuick = createQuickConnect\(\)/);
   });
 });
 
