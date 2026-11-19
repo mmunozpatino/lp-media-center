@@ -667,7 +667,7 @@ describe('Library', () => {
     assert.equal(libraryFacts(movie, true, now), 'Película · llegó 14 nov · 7,6 GB · WEBDL-2160p · Inglés');
     assert.match(libraryFacts(movie, false, now), /llegó 5 nov/);
     assert.match(libraryFacts({ ...movie, addedAt: '2024-03-02T15:00:00Z' }, false, now), /llegó 2 de mar de 2024/);
-    const show = { kind: 'tv', addedAt: '2026-11-06T01:32:00Z', sizeBytes: 0, quality: null, languages: [], episodes: 3, seasons: [1] };
+    const show = { kind: 'tv', addedAt: '2026-11-05T15:32:00Z', sizeBytes: 0, quality: null, languages: [], episodes: 3, seasons: [1] };
     assert.equal(libraryFacts(show, false, now), 'Serie · T01 · 3 capítulos · llegó 5 nov');
   });
 
