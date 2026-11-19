@@ -7,9 +7,9 @@ import { describe, it } from 'node:test';
 // La interfaz es un solo HTML: se prueba la sección de textos, que no toca el DOM.
 const html = readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
 const textos = /--- Textos ---([\s\S]*)\/\/ --- Fin de textos ---/.exec(html)[1];
-const { isNewerVersion, pickReleaseAsset, tagFromReleaseUrl, releaseDownloadUrl, rateLimitedUntil, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, deviceKind, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesHealth, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote } =
+const { isNewerVersion, pickReleaseAsset, tagFromReleaseUrl, releaseDownloadUrl, rateLimitedUntil, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, deviceKind, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesHealth, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote, languageName, languageList, matchesLibrarySearch, episodesLabel, arrivalDate, libraryFacts, jellyfinItemUrl, subtitlesText } =
   new Function(
-    `${textos}; return { isNewerVersion, pickReleaseAsset, tagFromReleaseUrl, releaseDownloadUrl, rateLimitedUntil, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, deviceKind, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesHealth, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote };`,
+    `${textos}; return { isNewerVersion, pickReleaseAsset, tagFromReleaseUrl, releaseDownloadUrl, rateLimitedUntil, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, deviceKind, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesHealth, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote, languageName, languageList, matchesLibrarySearch, episodesLabel, arrivalDate, libraryFacts, jellyfinItemUrl, subtitlesText };`,
   )();
 
 const require = createRequire(import.meta.url);
@@ -631,5 +631,72 @@ describe('celulares', () => {
     assert.equal(deviceKind('Equipo de ejemplo'), 'other');
     assert.equal(deviceKind(''), 'other');
     assert.equal(deviceKind(null), 'other');
+  });
+});
+
+describe('Library', () => {
+  const now = Date.parse('2026-11-18T12:00:00Z');
+
+  it('nombra los idiomas en español, vengan como nombre o como código', () => {
+    assert.equal(languageName('English'), 'Inglés');
+    assert.equal(languageName('spa'), 'Español');
+    assert.equal(languageName('es'), 'Español');
+    assert.equal(languageName('Spanish (Latino)'), 'Español latino');
+    assert.equal(languageName('Klingon'), 'Klingon');
+    assert.equal(languageName('und'), null);
+    assert.deepEqual(languageList(['eng', 'English', 'spa', '', 'Unknown']), ['Inglés', 'Español']);
+  });
+
+  it('busca por título y año, sin importar tildes ni mayúsculas', () => {
+    const amelie = { title: 'Amélie', year: '2001' };
+    assert.equal(matchesLibrarySearch(amelie, 'amelie'), true);
+    assert.equal(matchesLibrarySearch(amelie, 'AMÉLIE 2001'), true);
+    assert.equal(matchesLibrarySearch(amelie, 'amelie 1999'), false);
+    assert.equal(matchesLibrarySearch(amelie, '   '), true);
+  });
+
+  it('describe los capítulos de una tarjeta de serie', () => {
+    assert.equal(episodesLabel({ episodeList: [{ season: 1, episode: 1 }, { season: 1, episode: 2 }] }), 'T01E01 y T01E02');
+    assert.equal(episodesLabel({ episodes: 6, seasons: [2], episodeList: new Array(6).fill({ season: 2, episode: 1 }) }), 'T02 · 6 capítulos');
+    assert.equal(episodesLabel({ episodes: 51, seasons: [1, 2, 3] }), '3 temporadas · 51 capítulos');
+    assert.equal(episodesLabel({ episodes: 1, seasons: [] }), '1 capítulo');
+  });
+
+  it('arma la línea de la tarjeta con llegada, tamaño, calidad e idioma', () => {
+    const movie = { kind: 'movie', addedAt: '2026-11-05T19:16:12Z', arrivedAt: '2026-11-14T15:00:00Z', sizeBytes: 8151163335, quality: 'WEBDL-2160p', languages: ['English'] };
+    assert.equal(libraryFacts(movie, true, now), 'Película · llegó 14 nov · 7,6 GB · WEBDL-2160p · Inglés');
+    assert.match(libraryFacts(movie, false, now), /llegó 5 nov/);
+    assert.match(libraryFacts({ ...movie, addedAt: '2024-03-02T15:00:00Z' }, false, now), /llegó 2 de mar de 2024/);
+    const show = { kind: 'tv', addedAt: '2026-11-06T01:32:00Z', sizeBytes: 0, quality: null, languages: [], episodes: 3, seasons: [1] };
+    assert.equal(libraryFacts(show, false, now), 'Serie · T01 · 3 capítulos · llegó 5 nov');
+  });
+
+  it('abre el título en Jellyfin, o su búsqueda si no lo encontró', () => {
+    const base = 'http://192.168.1.50:8096';
+    const id = 'a'.repeat(32);
+    assert.equal(jellyfinItemUrl(base, { jellyfinId: id, title: 'X' }, 'srv'), `${base}/web/#/details?id=${id}&serverId=srv`);
+    assert.equal(jellyfinItemUrl(base, { jellyfinId: null, title: 'Amélie & co' }, 'srv'), `${base}/web/#/search?query=Am%C3%A9lie%20%26%20co`);
+    assert.equal(jellyfinItemUrl(base, { jellyfinId: id, title: 'X' }, null), `${base}/web/#/search?query=X`);
+    assert.equal(jellyfinItemUrl(base, { jellyfinId: '../evil', title: 'X' }, 'srv'), `${base}/web/#/search?query=X`);
+    assert.equal(isServiceUrl(jellyfinItemUrl(base, { jellyfinId: id, title: 'X' }, 'srv')), true);
+  });
+
+  it('resume los subtítulos de Bazarr, y si no responde lo dice', () => {
+    assert.equal(
+      subtitlesText({ ok: true, of: 3, languages: [{ code: 'spa', count: 3, external: true }, { code: 'eng', count: 1, external: false, forced: true }] }),
+      'Español, Inglés (forzados, en 1 de 3, dentro del archivo)',
+    );
+    assert.equal(subtitlesText({ ok: true, of: 1, languages: [] }), 'Ninguno según Bazarr');
+    assert.match(subtitlesText({ ok: false, error: 'Bazarr no respondió (No responde): no se pueden ver los subtítulos' }), /Bazarr no respondió/);
+  });
+
+  it('es una vista propia, en la barra lateral y en "Más", con sus dos pestañas', () => {
+    assert.match(html, /<section id="view-library"[\s\S]*?data-tab="recent"[\s\S]*?data-tab="all"[\s\S]*?id="library"/);
+    assert.equal(html.match(/data-view="library"/g).length, 2);
+    assert.match(html, /const MORE_VIEWS = \['library'/);
+    // Se lee de su propia ruta, no de /api/status, y borrar reusa el diálogo de pedidos.
+    assert.match(html, /apiRequest\(pcHost, '\/api\/library'/);
+    assert.match(html, /entry\.deletable && entry\.deleteId \? deleteButton\(entry\.deleteId, title\) : null/);
+    assert.doesNotMatch(html, /otra versión|buscar otra/i);
   });
 });

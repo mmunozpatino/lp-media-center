@@ -53,6 +53,8 @@ en ejecución. Electron y Capacitor son la base de cada app; electron-builder y 
   y `disks`. Cada parte tiene `state`: `ok`, `warning`, `down` (no responde) o `error` (responde, pero no se pudo
   leer), y `control`, que es `null` si no se puede frenar ni levantar.
 - `POST /api/parts/<id>/stop` o `/start` responde `ok` y `message`. Solo se acepta con el `Origin` de la app.
+- `GET /api/library` y `GET /api/library/<movie|tv>/<id>`: la sección Library (ver "Qué hace la app"). Solo GET, con la sesión de
+  siempre desde la red.
 
 ## Seguridad del backend
 Escucha en `0.0.0.0`, solo IPv4, porque la PC tiene IPv6 público.
@@ -132,6 +134,35 @@ levantar cada programa o todos juntos. Frenar pide confirmación; levantar no.
 
 **Falta:** reintentar una descarga. Lo único que borra archivos es borrar un pedido.
 
+**Library (lo que ya se bajó):** pedido de la usuaria el 2026-11-18, porque lo que llega desaparece de Downloads y de Requests.
+`createLibrary` en `backend/server.js`, tests en `test/library.test.js`. Solo lee; en el celu está en "Más". Dos pestañas:
+Recientes y Biblioteca. No tiene "buscar otra versión": la usuaria no lo pidió.
+- **`GET /api/library`:** una foto que dura 5 minutos (`?refresh=1`, que manda el botón Actualizar en esa vista, la rehace si tiene
+  más de 30 s) y se descarta al borrar un pedido. No se lee en `/api/status`. Lee Radarr `/movie` y `/history/since` (30 días),
+  Sonarr `/series`, `/episodefile?seriesId=` por serie (de a 4) y `/history/since` de siempre, Seerr `/request?filter=all` y, si hay
+  clave, Jellyfin `/Items` (películas y series, con `ProviderIds` y `Path`). Si uno falla, lo informa en `errors` y muestra el resto.
+  Con la biblioteca real (2026-11-18, solo lectura): 279 títulos, 30 recientes, 113 KB, unos 260 ms.
+- **Recientes:** los `downloadFolderImported` de los últimos 30 días cuyo archivo sigue siendo el actual (lo reemplazado o borrado no
+  sale), lo más nuevo arriba. Capítulos de la misma serie del mismo día (hora de la PC) van en una tarjeta. **Biblioteca:** todo lo
+  que tiene archivo, por fecha de llegada (`dateAdded` del archivo; en series, el último), con búsqueda por título y año sin tildes,
+  de a 60 con "Mostrar más". Avisos, buscador y lista no se reemplazan al llegar datos, para no sacarle el foco al buscador.
+- **Origen y papelera:** la regla del borrado (película monitoreada en su carpeta de `F:\Movies\_inbox`; serie monitoreada en su
+  carpeta de `F:\Series` con algún archivo actual importado de una descarga). Si la cumple: `seerr` si Seerr la tiene pedida, si no
+  `telegram`, y la papelera usa el id `cola-<movie|tv>-<tmdbId>` (o `radarr-|sonarr-<id>`) del borrado de siempre, que vuelve a
+  comprobar todo. Si no: `none` ("Sin pedido"), sin papelera, y el borrado igual lo rechaza con 409 (está en los tests).
+  Borrar una tarjeta de serie borra todos los episodios pedidos de esa serie, como en Requests: el diálogo lista los archivos.
+- **Abrir en Jellyfin:** `<dirección que usa la app>:8096/web/#/details?id=&serverId=`, con el item buscado por carpeta y después
+  por TMDB o TVDB. Sin clave o sin encontrarlo, abre `#/search?query=<título>`. Pasa por `window.open(url, 'navegador')` y
+  `isServiceUrl`, sin cambios en `electron/seerr-url.cjs`. Las dos rutas salen de la web de Jellyfin 12.4 de esta PC.
+- **Ver detalles (`/api/library/<movie|tv>/<id>[?files=…]`):** se pide al abrir el panel. Torrent (el `grabbed` con el mismo
+  `downloadId` que la importación), release, carpeta, archivos, tamaño, calidad, video, audio (`mediaInfo.audioLanguages`) y
+  subtítulos de Bazarr (`/api/movies?radarrid[]=` o `/api/episodes?seriesid[]=`: idiomas, si son externos, en cuántos episodios y qué
+  falta). Si Bazarr no responde, lo dice en amarillo y muestra los subtítulos que trae el archivo según Radarr o Sonarr.
+- **Probado:** tests con programas simulados; lectura real de la foto y de los detalles contra los programas de esta PC; la interfaz
+  en Electron con datos simulados a 412 px (`?celular`) y 1600 px, y las otras secciones comparadas píxel por píxel con la versión
+  anterior (en Windows cambia solo la barra lateral). **Sin probar:** borrar desde Library en real, abrir Jellyfin desde un celular
+  real y la búsqueda de Jellyfin cuando no encuentra el título.
+
 **Borrar un pedido (la excepción a no tocar la biblioteca):** papelera en cada tarjeta de Requests y de Downloads. Pedido de la
 usuaria el 2026-11-09: sacar un pedido de Telegram o de Seerr de todos los pasos a los que llegó, archivo incluido; existe porque
 solo ella controla la app. `createRequestRemover` en `backend/server.js`, tests en `test/borrar.test.js`.
@@ -189,8 +220,8 @@ no acepta `X-Emby-Token` ni `api_key`, solo `Authorization: MediaBrowser Token="
 reanudar no arranque lo frenado a mano. Requiere activar en qBittorrent "Omitir autenticación para clientes en localhost"; sin eso,
 el botón explica qué activar.
 
-**Pantalla:** diseño CineVault (dark cinematic) con barra lateral y vistas Overview, Services, Downloads, Requests, Storage,
-Network y Settings. En celular, servicios de a dos por fila, como pidió la usuaria, sin descripción ni gráfica; descargas, pedidos y red de a uno. La barra de abajo flota y muestra Overview, Services, Downloads, Requests y "Más", que abre Storage, Network y Settings. Fuera de Overview, el estado general queda en una línea. Tema oscuro por defecto, o claro.
+**Pantalla:** diseño CineVault (dark cinematic) con barra lateral y vistas Overview, Services, Downloads, Requests, Library,
+Storage, Network, Jellyfin, Celulares y Settings. En celular, servicios de a dos por fila, como pidió la usuaria, sin descripción ni gráfica; descargas, pedidos y red de a uno. La barra de abajo flota y muestra Overview, Services, Downloads, Requests y "Más", que abre Library, Storage, Network, Jellyfin y Settings. Fuera de Overview, el estado general queda en una línea. Tema oscuro por defecto, o claro.
 - **Overview del celu (pedido de la usuaria el 2026-11-13):** distinta de la de Windows, que no cambia ni con la ventana angosta.
   Se decide por la plataforma, no por el ancho: con `isMobile` (Capacitor nativo o `?celular`) se pone la clase `app-android` en
   `<html>`, y todo el CSS propio cuelga de ella (nunca de una media query de ancho). Arriba siguen las cuatro métricas; en lugar

@@ -1869,6 +1869,502 @@ export function createJellyfin(config, { fetchImpl = fetch, keyFile = JELLYFIN_K
   };
 }
 
+// --- Library: lo que ya llegó a Radarr y Sonarr ---
+// Pedido de la usuaria el 2026-11-18: ver y administrar lo que ya se bajó, que desaparece de Downloads y de Requests al
+// importarse. Solo lee. "Recientes" son los `downloadFolderImported` de los últimos 30 días cuyo archivo sigue en el disco;
+// "Biblioteca" es todo lo que Radarr y Sonarr tienen con archivo. Son cientos de títulos, así que no se leen en cada
+// /api/status: se arma una foto que dura 5 minutos (se puede pedir de nuevo, como mucho cada 30 s) y se descarta al borrar
+// un pedido. Si algo es un pedido (y se puede borrar) se decide con la misma regla que createRequestRemover, que de todos
+// modos lo vuelve a comprobar al borrar: acá solo sirve para mostrar u ocultar la papelera.
+
+const LIBRARY_TTL_MS = 5 * 60 * 1000;
+const LIBRARY_MIN_REFRESH_MS = 30 * 1000;
+const RECENT_DAYS = 30;
+const ALL_TIME = '2000-01-01T00:00:00Z';
+const TMDB_IMAGE = /^https:\/\/image\.tmdb\.org\/t\/p\/[^/]+(\/[\w.-]+)$/;
+const MAX_DETAIL_FILES = 300;
+
+const localDay = (iso) => {
+  const date = new Date(iso);
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+const languageNames = (languages) => [...new Set((languages ?? []).map((language) => language?.name).filter((name) => name && name !== 'Unknown'))];
+const codeList = (text) => [...new Set(String(text ?? '').split(/[/,]/).map((code) => code.trim().toLowerCase()).filter(Boolean))];
+const qualityName = (file) => file?.quality?.quality?.name ?? null;
+const lowerPath = (value) => (typeof value === 'string' ? path.win32.normalize(value).replace(/\\+$/, '').toLowerCase() : '');
+
+function mostCommon(values) {
+  const counts = new Map();
+  for (const value of values) if (value) counts.set(value, (counts.get(value) ?? 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+/** Corre `task` sobre cada elemento, de a `limit` por vez. */
+async function inBatches(items, limit, task) {
+  const results = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await task(items[index]).then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+export function createLibrary(
+  config,
+  {
+    fetchImpl = fetch,
+    now = Date.now,
+    jellyfinKeyFile = JELLYFIN_KEY_FILE,
+    roots = REQUEST_ROOTS,
+    ttlMs = LIBRARY_TTL_MS,
+    minRefreshMs = LIBRARY_MIN_REFRESH_MS,
+    recentDays = RECENT_DAYS,
+  } = {},
+) {
+  let cache = null;
+  let cachedAt = -Infinity;
+  let inFlight = null;
+
+  async function call(url, headers) {
+    let response;
+    try {
+      response = await fetchImpl(url, { headers, redirect: 'manual', signal: AbortSignal.timeout(config.httpTimeoutMs * 5) });
+    } catch {
+      throw new ProbeError('down', 'No responde');
+    }
+    if (response.status === 404) return null;
+    if (response.status === 401 || response.status === 403) throw new ProbeError('error', 'Rechazó la clave');
+    if (!response.ok) throw new ProbeError('error', `Respondió HTTP ${response.status}`);
+    try {
+      return await response.json();
+    } catch {
+      throw new ProbeError('error', 'Respondió algo que no se pudo leer');
+    }
+  }
+
+  async function arr(source, pathname) {
+    const service = config.services[source];
+    return call(`${service.url}/api/v3${pathname}`, { 'X-Api-Key': await readXmlApiKey(service.keyFile) });
+  }
+
+  async function bazarr(pathname) {
+    const service = config.services.bazarr;
+    return call(`${service.url}${pathname}`, { 'X-API-KEY': await readBazarrApiKey(service.keyFile) });
+  }
+
+  function jellyfinKey() {
+    try {
+      return readFileSync(jellyfinKeyFile, 'utf8').trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  const list = (value) => (Array.isArray(value) ? value : []);
+
+  /** Todas las películas y series de Jellyfin, para abrir cada título ahí. Sin clave o sin respuesta: nada. */
+  async function readJellyfin() {
+    const key = jellyfinKey();
+    if (!key) return null;
+    const body = await call(
+      `${config.services.jellyfin.url}/Items?Recursive=true&IncludeItemTypes=Movie,Series&Fields=ProviderIds,Path&EnableImages=false&EnableUserData=false`,
+      { Authorization: `MediaBrowser Token="${key}"` },
+    );
+    const items = list(body?.Items);
+    const index = { serverId: items.find((item) => item.ServerId)?.ServerId ?? null, byPath: new Map(), byProvider: new Map() };
+    for (const item of items) {
+      if (typeof item.Id !== 'string' || !/^[a-f0-9]{32}$/i.test(item.Id)) continue;
+      const kind = item.Type === 'Series' ? 'tv' : item.Type === 'Movie' ? 'movie' : null;
+      if (!kind) continue;
+      // Una película es un archivo: se busca por su carpeta, que es la que conoce Radarr. Una serie ya es una carpeta.
+      const folder = kind === 'movie' ? lowerPath(path.win32.dirname(item.Path ?? '')) : lowerPath(item.Path);
+      if (folder) index.byPath.set(`${kind}|${folder}`, item.Id);
+      for (const provider of ['Tmdb', 'Tvdb']) {
+        const value = item.ProviderIds?.[provider];
+        if (value && !index.byProvider.has(`${kind}|${provider}|${value}`)) index.byProvider.set(`${kind}|${provider}|${value}`, item.Id);
+      }
+    }
+    return index;
+  }
+
+  function jellyfinIdOf(index, kind, title) {
+    if (!index) return null;
+    return (
+      index.byPath.get(`${kind}|${lowerPath(title.path)}`) ??
+      (title.tmdbId ? index.byProvider.get(`${kind}|Tmdb|${title.tmdbId}`) : null) ??
+      (kind === 'tv' && title.tvdbId ? index.byProvider.get(`tv|Tvdb|${title.tvdbId}`) : null) ??
+      null
+    );
+  }
+
+  async function readSeerr() {
+    const service = config.services.seerr;
+    const key = await readSeerrApiKey(service.keyFile);
+    const page = await call(`${service.url}/api/v1/request?take=1000&skip=0&filter=all&sort=added`, { 'X-Api-Key': key });
+    const keys = new Set();
+    for (const request of list(page?.results)) {
+      const kind = request.type === 'tv' ? 'tv' : 'movie';
+      if (request.media?.tmdbId) keys.add(`${kind}-${request.media.tmdbId}`);
+      if (kind === 'tv' && request.media?.tvdbId) keys.add(`tvdb-${request.media.tvdbId}`);
+    }
+    return keys;
+  }
+
+  async function readSonarr() {
+    const [series, history] = await Promise.all([
+      arr('sonarr', '/series'),
+      arr('sonarr', `/history/since?date=${encodeURIComponent(ALL_TIME)}&eventType=${IMPORT_EVENT}&includeEpisode=true`),
+    ]);
+    const withFiles = list(series).filter((show) => (show.statistics?.episodeFileCount ?? 0) > 0);
+    const files = await inBatches(withFiles, 4, (show) => arr('sonarr', `/episodefile?seriesId=${show.id}`));
+    const filesBySeries = new Map();
+    withFiles.forEach((show, index) => {
+      if (files[index].ok) filesBySeries.set(show.id, list(files[index].value).filter((file) => file.seriesId === show.id || file.seriesId === undefined));
+    });
+    return { series: withFiles, filesBySeries, history: list(history).filter((event) => event.eventType === IMPORT_EVENT), missingFiles: files.some((result) => !result.ok) };
+  }
+
+  async function readRadarr(since) {
+    const [movies, history] = await Promise.all([
+      arr('radarr', '/movie'),
+      arr('radarr', `/history/since?date=${encodeURIComponent(since)}&eventType=${IMPORT_EVENT}`),
+    ]);
+    return { movies: list(movies).filter((movie) => movie.hasFile && movie.movieFile), history: list(history).filter((event) => event.eventType === IMPORT_EVENT) };
+  }
+
+  /** Origen y papelera. Lo que no es pedido según la regla del borrado sale como "sin pedido" y no se puede borrar. */
+  function requestInfo(kind, title, isRequest, seerrKeys) {
+    if (!isRequest) return { origin: 'none', deletable: false, deleteId: null };
+    const inSeerr =
+      seerrKeys?.has(`${kind}-${title.tmdbId}`) || (kind === 'tv' && title.tvdbId && seerrKeys?.has(`tvdb-${title.tvdbId}`));
+    // El mismo id que usa Downloads: busca por tmdbId, borra también el pedido de Seerr si lo hay y la comprobación es estricta.
+    const deleteId = title.tmdbId ? `cola-${kind}-${title.tmdbId}` : `${kind === 'movie' ? 'radarr' : 'sonarr'}-${title.id}`;
+    return { origin: inSeerr ? 'seerr' : 'telegram', deletable: true, deleteId };
+  }
+
+  function movieEntry(movie, seerrKeys, jellyfin) {
+    const file = movie.movieFile;
+    const posterPath = TMDB_IMAGE.exec(list(movie.images).find((image) => image.coverType === 'poster')?.remoteUrl ?? '')?.[1] ?? null;
+    const isRequest = Boolean(movie.monitored) && isTitleFolder(movie.path, roots.movie) && isInsideFolder(file.path, movie.path);
+    return {
+      key: `movie-${movie.id}`,
+      kind: 'movie',
+      id: movie.id,
+      tmdbId: movie.tmdbId ?? null,
+      title: movie.title ?? 'Sin título',
+      year: movie.year > 0 ? String(movie.year) : null,
+      posterPath,
+      addedAt: toIso(file.dateAdded) ?? toIso(movie.added),
+      sizeBytes: file.size ?? movie.sizeOnDisk ?? null,
+      quality: qualityName(file),
+      languages: languageNames(file.languages),
+      ...requestInfo('movie', movie, isRequest, seerrKeys),
+      jellyfinId: jellyfinIdOf(jellyfin, 'movie', movie),
+    };
+  }
+
+  function seriesEntry(show, files, importedFileIds, seerrKeys, jellyfin) {
+    const known = files ?? [];
+    const imported = files ? known.some((file) => importedFileIds.has(file.id)) : importedFileIds.size > 0;
+    const isRequest = Boolean(show.monitored) && isTitleFolder(show.path, roots.tv) && imported;
+    const dates = known.map((file) => toIso(file.dateAdded)).filter(Boolean).sort();
+    return {
+      key: `tv-${show.id}`,
+      kind: 'tv',
+      id: show.id,
+      tmdbId: show.tmdbId || null,
+      tvdbId: show.tvdbId || null,
+      title: show.title ?? 'Sin título',
+      year: show.year > 0 ? String(show.year) : null,
+      posterPath: null,
+      addedAt: dates.at(-1) ?? toIso(show.added),
+      sizeBytes: show.statistics?.sizeOnDisk ?? known.reduce((sum, file) => sum + (file.size ?? 0), 0),
+      episodes: show.statistics?.episodeFileCount ?? known.length,
+      seasons: [...new Set(known.map((file) => file.seasonNumber).filter(Number.isInteger))].sort((a, b) => a - b),
+      quality: mostCommon(known.map(qualityName)),
+      languages: [...new Set(known.flatMap((file) => languageNames(file.languages)))],
+      ...requestInfo('tv', show, isRequest, seerrKeys),
+      jellyfinId: jellyfinIdOf(jellyfin, 'tv', show),
+    };
+  }
+
+  async function collect() {
+    const since = new Date(now() - recentDays * 24 * 60 * 60 * 1000).toISOString();
+    const [radarr, sonarr, seerr, jellyfin] = await Promise.allSettled([readRadarr(since), readSonarr(), readSeerr(), readJellyfin()]);
+    const errors = [];
+    const fail = (source, name, result, extra = '') => errors.push({ source, name, message: `${result.reason?.message || 'No se pudo leer'}${extra}` });
+    if (radarr.status === 'rejected') fail('radarr', 'Radarr', radarr, ': faltan las películas');
+    if (sonarr.status === 'rejected') fail('sonarr', 'Sonarr', sonarr, ': faltan las series');
+    if (sonarr.value?.missingFiles) errors.push({ source: 'sonarr', name: 'Sonarr', message: 'No se pudieron leer los archivos de algunas series' });
+    if (seerr.status === 'rejected') fail('seerr', 'Seerr', seerr, ': lo pedido por Seerr puede figurar como Telegram');
+    const seerrKeys = seerr.value ?? null;
+    const jellyfinIndex = jellyfin.value ?? null;
+    const cutoff = now() - recentDays * 24 * 60 * 60 * 1000;
+    const isRecent = (event) => {
+      const time = Date.parse(event.date);
+      return Number.isFinite(time) && time >= cutoff;
+    };
+
+    const items = [];
+    const recent = [];
+
+    if (radarr.value) {
+      const byId = new Map();
+      for (const movie of radarr.value.movies) {
+        const entry = movieEntry(movie, seerrKeys, jellyfinIndex);
+        byId.set(movie.id, { movie, entry });
+        items.push(entry);
+      }
+      const seen = new Set();
+      for (const event of radarr.value.history) {
+        const found = byId.get(event.movieId);
+        const fileId = Number(event.data?.fileId);
+        // Solo si el archivo que entró sigue siendo el de la película: lo reemplazado o borrado no se muestra.
+        if (!found || !isRecent(event) || found.movie.movieFile.id !== fileId || seen.has(fileId)) continue;
+        seen.add(fileId);
+        recent.push({ ...found.entry, key: `movie-${found.movie.id}-${fileId}`, arrivedAt: toIso(event.date) });
+      }
+    }
+
+    if (sonarr.value) {
+      const { series, filesBySeries, history } = sonarr.value;
+      const importedBySeries = new Map();
+      for (const event of history) {
+        const fileId = Number(event.data?.fileId);
+        if (!Number.isInteger(fileId)) continue;
+        if (!importedBySeries.has(event.seriesId)) importedBySeries.set(event.seriesId, new Set());
+        importedBySeries.get(event.seriesId).add(fileId);
+      }
+      const byId = new Map();
+      for (const show of series) {
+        const files = filesBySeries.get(show.id) ?? null;
+        const entry = seriesEntry(show, files, importedBySeries.get(show.id) ?? new Set(), seerrKeys, jellyfinIndex);
+        byId.set(show.id, { show, files, entry });
+        items.push(entry);
+      }
+      // Capítulos de la misma serie que llegaron el mismo día: una sola tarjeta.
+      const groups = new Map();
+      const seen = new Set();
+      for (const event of history) {
+        const found = byId.get(event.seriesId);
+        const fileId = Number(event.data?.fileId);
+        const file = found?.files?.find((candidate) => candidate.id === fileId);
+        if (!file || !isRecent(event) || seen.has(fileId)) continue;
+        seen.add(fileId);
+        const key = `tv-${event.seriesId}-${localDay(event.date)}`;
+        if (!groups.has(key)) groups.set(key, { found, key, events: [], files: [] });
+        const group = groups.get(key);
+        group.events.push(event);
+        group.files.push(file);
+      }
+      for (const { found, key, events, files } of groups.values()) {
+        const episodes = events
+          .map((event) => ({ season: event.episode?.seasonNumber ?? null, episode: event.episode?.episodeNumber ?? null, title: event.episode?.title ?? null }))
+          .sort((a, b) => (a.season ?? 0) - (b.season ?? 0) || (a.episode ?? 0) - (b.episode ?? 0));
+        recent.push({
+          ...found.entry,
+          key,
+          arrivedAt: events.map((event) => toIso(event.date)).filter(Boolean).sort().at(-1) ?? null,
+          sizeBytes: files.reduce((sum, file) => sum + (file.size ?? 0), 0),
+          quality: mostCommon(files.map(qualityName)),
+          languages: [...new Set(files.flatMap((file) => languageNames(file.languages)))],
+          episodes: episodes.length,
+          seasons: [...new Set(episodes.map((episode) => episode.season).filter(Number.isInteger))],
+          episodeList: episodes,
+          fileIds: files.map((file) => file.id),
+        });
+      }
+    }
+
+    const byDate = (field) => (a, b) => String(b[field] ?? '').localeCompare(String(a[field] ?? ''));
+    items.sort(byDate('addedAt'));
+    recent.sort(byDate('arrivedAt'));
+    return {
+      generatedAt: new Date(now()).toISOString(),
+      recentDays,
+      recent,
+      items,
+      errors,
+      jellyfin: jellyfinIndex?.serverId ? { serverId: jellyfinIndex.serverId } : null,
+    };
+  }
+
+  // --- Detalles de un título: release, archivos, audio y subtítulos. Se leen al abrir el panel ---
+
+  /** Subtítulos según Bazarr. Si no responde, se dice y el resto del panel se muestra igual. */
+  async function subtitles(read) {
+    try {
+      const body = await read();
+      return { ok: true, ...body };
+    } catch (error) {
+      return { ok: false, error: `Bazarr no respondió (${error.message || 'falló'}): no se pueden ver los subtítulos` };
+    }
+  }
+
+  const subtitleLanguage = (sub) => ({
+    code: sub.code3 ?? sub.code2 ?? null,
+    name: sub.name ?? null,
+    forced: Boolean(sub.forced),
+    hi: Boolean(sub.hi),
+    external: Boolean(sub.path),
+  });
+
+  /** Cada idioma una vez, con en cuántos episodios está. */
+  function summarizeSubtitles(entries) {
+    const languages = new Map();
+    const missing = new Map();
+    for (const entry of entries) {
+      const here = new Set();
+      for (const sub of list(entry.subtitles)) {
+        const language = subtitleLanguage(sub);
+        const key = `${language.code}|${language.forced}`;
+        if (here.has(key)) continue;
+        here.add(key);
+        const current = languages.get(key) ?? { ...language, count: 0 };
+        current.count += 1;
+        current.external ||= language.external;
+        current.hi ||= language.hi;
+        languages.set(key, current);
+      }
+      for (const sub of list(entry.missing_subtitles)) {
+        const code = sub.code3 ?? sub.code2 ?? sub.name;
+        missing.set(code, { code, name: sub.name ?? null, count: (missing.get(code)?.count ?? 0) + 1 });
+      }
+    }
+    return { of: entries.length, languages: [...languages.values()], missing: [...missing.values()] };
+  }
+
+  function fileFacts(file) {
+    const media = file.mediaInfo ?? {};
+    return {
+      name: file.relativePath ?? path.win32.basename(file.path ?? ''),
+      path: file.path ?? null,
+      sizeBytes: file.size ?? null,
+      quality: qualityName(file),
+      languages: languageNames(file.languages),
+      release: file.sceneName || null,
+      audio: codeList(media.audioLanguages),
+      embeddedSubtitles: codeList(media.subtitles),
+      resolution: media.resolution || null,
+      videoCodec: media.videoCodec || null,
+    };
+  }
+
+  /** El torrent de cada importación: el `grabbed` con el mismo downloadId. */
+  function torrentsOf(history, fileIds) {
+    const events = list(history);
+    const imports = events.filter((event) => event.eventType === IMPORT_EVENT && fileIds.has(Number(event.data?.fileId)));
+    const names = [];
+    for (const event of imports) {
+      const grab = events.find((candidate) => candidate.eventType === 'grabbed' && candidate.downloadId && candidate.downloadId === event.downloadId);
+      const name = grab?.sourceTitle ?? event.sourceTitle ?? null;
+      if (name && !names.includes(name)) names.push(name);
+    }
+    return names;
+  }
+
+  async function movieDetails(id) {
+    const movie = await arr('radarr', `/movie/${id}`);
+    if (!movie?.hasFile || !movie.movieFile) return [404, { error: 'Esa película ya no tiene archivo en Radarr' }];
+    const [history, subs] = await Promise.all([
+      arr('radarr', `/history/movie?movieId=${id}`).catch(() => []),
+      subtitles(async () => summarizeSubtitles(list((await bazarr(`/api/movies?radarrid[]=${id}`))?.data).filter((entry) => entry.radarrId === id))),
+    ]);
+    const file = fileFacts(movie.movieFile);
+    return [200, {
+      kind: 'movie',
+      id,
+      title: movie.title ?? 'Sin título',
+      year: movie.year > 0 ? String(movie.year) : null,
+      folder: movie.path ?? null,
+      torrents: torrentsOf(history, new Set([movie.movieFile.id])),
+      sizeBytes: file.sizeBytes,
+      files: [file],
+      totalFiles: 1,
+      subtitles: subs,
+    }];
+  }
+
+  async function seriesDetails(id, fileIds) {
+    const show = await arr('sonarr', `/series/${id}`);
+    if (!show) return [404, { error: 'Esa serie ya no está en Sonarr' }];
+    const [files, episodes, history] = await Promise.all([
+      arr('sonarr', `/episodefile?seriesId=${id}`),
+      arr('sonarr', `/episode?seriesId=${id}`),
+      arr('sonarr', `/history/series?seriesId=${id}`).catch(() => []),
+    ]);
+    const wanted = fileIds?.length ? new Set(fileIds) : null;
+    const chosen = list(files)
+      .filter((file) => !wanted || wanted.has(file.id))
+      .sort((a, b) => String(a.relativePath ?? '').localeCompare(String(b.relativePath ?? '')));
+    if (!chosen.length) return [404, { error: 'Esos episodios ya no tienen archivo en Sonarr' }];
+    const chosenIds = new Set(chosen.map((file) => file.id));
+    const episodesOf = new Map();
+    for (const episode of list(episodes)) {
+      if (!episode.hasFile || !chosenIds.has(episode.episodeFileId)) continue;
+      if (!episodesOf.has(episode.episodeFileId)) episodesOf.set(episode.episodeFileId, []);
+      episodesOf.get(episode.episodeFileId).push(episode);
+    }
+    const episodeIds = new Set([...episodesOf.values()].flat().map((episode) => episode.id));
+    const subs = await subtitles(async () =>
+      summarizeSubtitles(list((await bazarr(`/api/episodes?seriesid[]=${id}`))?.data).filter((entry) => episodeIds.has(entry.sonarrEpisodeId))),
+    );
+    return [200, {
+      kind: 'tv',
+      id,
+      title: show.title ?? 'Sin título',
+      year: show.year > 0 ? String(show.year) : null,
+      folder: show.path ?? null,
+      torrents: torrentsOf(history, chosenIds),
+      sizeBytes: chosen.reduce((sum, file) => sum + (file.size ?? 0), 0),
+      files: chosen.slice(0, MAX_DETAIL_FILES).map((file) => ({
+        ...fileFacts(file),
+        episodes: (episodesOf.get(file.id) ?? [])
+          .map((episode) => ({ season: episode.seasonNumber ?? null, episode: episode.episodeNumber ?? null, title: episode.title ?? null }))
+          .sort((a, b) => (a.season ?? 0) - (b.season ?? 0) || (a.episode ?? 0) - (b.episode ?? 0)),
+      })),
+      totalFiles: chosen.length,
+      subtitles: subs,
+    }];
+  }
+
+  return {
+    /** La foto de la biblioteca. `refresh` la vuelve a armar si tiene más de 30 s. */
+    async list({ refresh = false } = {}) {
+      const age = now() - cachedAt;
+      if (cache && (age < (refresh ? minRefreshMs : ttlMs))) return [200, cache];
+      inFlight ??= collect()
+        .then((value) => {
+          cache = value;
+          cachedAt = now();
+          return value;
+        })
+        .finally(() => {
+          inFlight = null;
+        });
+      return [200, await inFlight];
+    },
+
+    async details(kind, id, { files } = {}) {
+      try {
+        return kind === 'movie' ? await movieDetails(id) : await seriesDetails(id, files);
+      } catch (error) {
+        return [502, { error: `No se pudieron leer los detalles: ${error.message || 'falló una consulta'}` }];
+      }
+    },
+
+    /** Después de borrar un pedido, la próxima consulta vuelve a leer todo. */
+    invalidate() {
+      cache = null;
+      cachedAt = -Infinity;
+    },
+  };
+}
+
 // --- Servidor HTTP ---
 
 function sendJson(res, status, body) {
@@ -1924,7 +2420,7 @@ function readJsonBody(req, limit = 16 * 1024) {
 
 export function createApp(
   collect,
-  { allowedOrigins, act = null, auth = null, downloads = null, requests = null, imports = null, jellyfin = null },
+  { allowedOrigins, act = null, auth = null, downloads = null, requests = null, imports = null, jellyfin = null, library = null },
 ) {
   let inFlight = null;
 
@@ -1936,7 +2432,7 @@ export function createApp(
     return inFlight;
   }
 
-  async function handle(req, res, pathname, kind, origin) {
+  async function handle(req, res, pathname, kind, origin, searchParams) {
     const isLocal = kind === 'local';
     const post = req.method === 'POST';
 
@@ -1995,7 +2491,10 @@ export function createApp(
         if (status !== 200) return sendJson(res, status, verdict);
         return sendJson(res, ...(await requests.plan(requestRoute[1])));
       }
-      return sendJson(res, ...(await requests.remove(requestRoute[1], body)));
+      const removed = await requests.remove(requestRoute[1], body);
+      // Lo borrado no tiene que seguir en Library: la próxima consulta vuelve a leer todo.
+      if (removed[0] === 200) library?.invalidate();
+      return sendJson(res, ...removed);
     }
 
     // Jellyfin: leer con la sesión de siempre; autorizar un código o desconectar, además con la contraseña del panel.
@@ -2010,6 +2509,20 @@ export function createApp(
       const device = /^\/api\/jellyfin\/devices\/([A-Za-z0-9]{1,64})\/remove$/.exec(pathname);
       if (device) return sendJson(res, ...(await jellyfin.removeDevice(device[1])));
       return sendJson(res, 404, { error: 'No existe' });
+    }
+
+    // Library: solo lectura, con la sesión de siempre. Borrar algo de acá pasa por /api/requests/<id>/plan y /delete.
+    if (library && pathname.startsWith('/api/library')) {
+      if (req.method !== 'GET') {
+        res.setHeader('Allow', 'GET');
+        return sendJson(res, 405, { error: 'Solo GET' });
+      }
+      if (pathname === '/api/library') return sendJson(res, ...(await library.list({ refresh: searchParams.get('refresh') === '1' })));
+      const detail = /^\/api\/library\/(movie|tv)\/(\d{1,9})$/.exec(pathname);
+      if (!detail) return sendJson(res, 404, { error: 'No existe' });
+      const files = (searchParams.get('files') ?? '').split(',').filter(Boolean);
+      if (files.length > MAX_DETAIL_FILES || files.some((file) => !/^\d{1,9}$/.test(file))) return sendJson(res, 400, { error: 'Pedido inválido' });
+      return sendJson(res, ...(await library.details(detail[1], Number(detail[2]), { files: files.map(Number) })));
     }
 
     // Importar a mano una descarga trabada: solo desde la app de esta PC, como pidió la usuaria.
@@ -2061,9 +2574,9 @@ export function createApp(
       return undefined;
     }
 
-    const { pathname } = new URL(req.url, 'http://backend');
+    const { pathname, searchParams } = new URL(req.url, 'http://backend');
     try {
-      return await handle(req, res, pathname, kind, origin);
+      return await handle(req, res, pathname, kind, origin, searchParams);
     } catch (error) {
       if (res.headersSent) return undefined;
       if (error instanceof BadRequest) return sendJson(res, 400, { error: error.message });
@@ -2093,6 +2606,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     requests: createRequestRemover(DEFAULT_CONFIG),
     imports: createImporter(DEFAULT_CONFIG),
     jellyfin: createJellyfin(DEFAULT_CONFIG),
+    library: createLibrary(DEFAULT_CONFIG),
   });
   try {
     await listen(server, HOST, PORT);

@@ -1620,6 +1620,141 @@
         color: var(--blue);
       }
 
+      .origin-none {
+        background: color-mix(in srgb, var(--muted) 18%, transparent);
+        color: var(--text-2);
+      }
+
+      /* --- Library --- */
+      .lib-tabs {
+        display: inline-flex;
+        gap: 4px;
+        padding: 3px;
+        border: 1px solid var(--border-soft);
+        border-radius: 10px;
+        background: var(--card-2);
+      }
+
+      .lib-tab {
+        min-height: 32px;
+        padding: 0 14px;
+        border: 0;
+        border-radius: 8px;
+        background: none;
+        color: var(--text-2);
+        font: inherit;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .lib-tab[aria-selected='true'] {
+        background: color-mix(in srgb, var(--purple) 26%, var(--card));
+        color: var(--text);
+      }
+
+      .lib-search {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 12px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--card);
+        color: var(--muted);
+      }
+
+      .lib-search input {
+        flex: 1;
+        min-width: 0;
+        min-height: 38px;
+        border: 0;
+        background: none;
+        color: var(--text);
+        font: inherit;
+        outline: none;
+      }
+
+      .lib-top {
+        margin-bottom: var(--gap);
+      }
+
+      .lib-card .request-title {
+        overflow-wrap: anywhere;
+      }
+
+      .lib-actions {
+        display: flex;
+        flex: none;
+        align-items: center;
+        gap: 2px;
+      }
+
+      .lib-actions .icon-button {
+        color: var(--muted);
+      }
+
+      .lib-actions .icon-button:hover,
+      .lib-actions .icon-button[aria-expanded='true'] {
+        color: var(--text);
+      }
+
+      .lib-actions .icon-button[aria-expanded='true'] svg {
+        transform: rotate(180deg);
+      }
+
+      .lib-details {
+        display: grid;
+        gap: 8px;
+        margin-top: 12px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border-soft);
+        font-size: 12.5px;
+      }
+
+      .lib-details dl {
+        display: grid;
+        grid-template-columns: max-content minmax(0, 1fr);
+        gap: 6px 12px;
+        margin: 0;
+      }
+
+      .lib-details dt {
+        color: var(--muted);
+      }
+
+      .lib-details dd {
+        margin: 0;
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .lib-details code {
+        font-size: 11.5px;
+      }
+
+      .lib-files {
+        display: grid;
+        gap: 4px;
+        max-height: 220px;
+        margin: 0;
+        padding: 0;
+        overflow: auto;
+        list-style: none;
+      }
+
+      .lib-files li {
+        overflow-wrap: anywhere;
+      }
+
+      .lib-failed {
+        color: var(--yellow);
+      }
+
+      .lib-more {
+        justify-self: center;
+      }
+
       .request-age {
         flex: none;
         color: var(--muted);
@@ -2758,6 +2893,7 @@
         /* Títulos largos y textos: de a uno por fila. Servicios y discos siguen de a dos. */
         #downloads > .stack,
         #requests > .stack,
+        #library-list > .stack,
         #network > .stack,
         #jellyfin > .stack {
           grid-template-columns: minmax(0, 1fr);
@@ -2911,6 +3047,15 @@
           padding: 0 8px;
         }
 
+        .lib-tabs {
+          width: 100%;
+        }
+
+        .lib-tab {
+          flex: 1;
+          min-height: 38px;
+        }
+
         .toasts {
           bottom: calc(96px + env(safe-area-inset-bottom));
         }
@@ -3052,6 +3197,8 @@
         <button type="button" class="nav-item" data-view="services"><span data-icon="server"></span>Services</button>
         <button type="button" class="nav-item" data-view="downloads"><span data-icon="download"></span>Downloads</button>
         <button type="button" class="nav-item" data-view="requests"><span data-icon="clapperboard"></span>Requests</button>
+        <!-- Library: en el celu va en "Más", porque la barra de abajo tiene lugar para cuatro. -->
+        <button type="button" class="nav-item secondary" data-view="library"><span data-icon="library"></span>Library</button>
         <button type="button" class="nav-item secondary" data-view="storage"><span data-icon="database"></span>Storage</button>
         <button type="button" class="nav-item secondary" data-view="network"><span data-icon="wifi"></span>Network</button>
         <button type="button" class="nav-item secondary" data-view="jellyfin"><span data-icon="tv"></span>Jellyfin</button>
@@ -3062,6 +3209,7 @@
         <button type="button" id="nav-more" class="nav-more" aria-haspopup="true" aria-expanded="false" aria-controls="more-menu"><span data-icon="ellipsis"></span>Más</button>
       </nav>
       <div id="more-menu" class="more-menu" hidden>
+        <button type="button" class="nav-item" data-view="library"><span data-icon="library"></span>Library</button>
         <button type="button" class="nav-item" data-view="storage"><span data-icon="database"></span>Storage</button>
         <button type="button" class="nav-item" data-view="network"><span data-icon="wifi"></span>Network</button>
         <button type="button" class="nav-item" data-view="jellyfin"><span data-icon="tv"></span>Jellyfin</button>
@@ -3155,6 +3303,19 @@
               </div>
             </div>
             <div id="requests"></div>
+          </section>
+
+          <section id="view-library" class="view" hidden>
+            <div class="view-head">
+              <div class="view-title"><h2>Library</h2><span id="library-meta" class="muted small"></span></div>
+              <div class="view-actions">
+                <div class="lib-tabs" role="tablist" aria-label="Qué ver">
+                  <button type="button" class="lib-tab" role="tab" data-tab="recent" aria-selected="true">Recientes</button>
+                  <button type="button" class="lib-tab" role="tab" data-tab="all" aria-selected="false">Biblioteca</button>
+                </div>
+              </div>
+            </div>
+            <div id="library"></div>
           </section>
 
           <section id="view-storage" class="view" hidden>
@@ -3773,6 +3934,7 @@
           );
           actions.replaceChildren(actionButton('Listo', close, true));
           refresh();
+          libraryChanged();
         }
 
         dialog.showModal();
@@ -4757,6 +4919,113 @@
         return 'other';
       }
 
+      // Library: idiomas como los mandan Radarr, Sonarr y Bazarr (nombre en inglés o código ISO de 2 o 3 letras).
+      const LANGUAGE_NAMES = {
+        english: 'Inglés', eng: 'Inglés', en: 'Inglés',
+        spanish: 'Español', spa: 'Español', es: 'Español',
+        latino: 'Español latino', 'spanish (latino)': 'Español latino', 'spanish latino': 'Español latino', lat: 'Español latino',
+        french: 'Francés', fre: 'Francés', fra: 'Francés', fr: 'Francés',
+        german: 'Alemán', ger: 'Alemán', deu: 'Alemán', de: 'Alemán',
+        italian: 'Italiano', ita: 'Italiano', it: 'Italiano',
+        portuguese: 'Portugués', por: 'Portugués', pt: 'Portugués', 'portuguese (brazil)': 'Portugués de Brasil', pob: 'Portugués de Brasil',
+        japanese: 'Japonés', jpn: 'Japonés', ja: 'Japonés',
+        korean: 'Coreano', kor: 'Coreano', ko: 'Coreano',
+        chinese: 'Chino', chi: 'Chino', zho: 'Chino', zh: 'Chino',
+        russian: 'Ruso', rus: 'Ruso', ru: 'Ruso',
+        dutch: 'Neerlandés', dut: 'Neerlandés', nld: 'Neerlandés', nl: 'Neerlandés',
+        swedish: 'Sueco', swe: 'Sueco', danish: 'Danés', dan: 'Danés', norwegian: 'Noruego', nor: 'Noruego',
+        finnish: 'Finés', fin: 'Finés', polish: 'Polaco', pol: 'Polaco', turkish: 'Turco', tur: 'Turco',
+        arabic: 'Árabe', ara: 'Árabe', hindi: 'Hindi', hin: 'Hindi', catalan: 'Catalán', cat: 'Catalán',
+      };
+
+      /** "Inglés" para "English", "eng" o "en". Lo que no se conoce queda como vino; "und" o vacío, null. */
+      function languageName(value) {
+        const text = String(value ?? '').trim();
+        if (!text || /^(und|unknown|original)$/i.test(text)) return null;
+        return LANGUAGE_NAMES[text.toLowerCase()] ?? text;
+      }
+
+      /** Una lista de idiomas sin repetir, ya en español. */
+      const languageList = (values) => [...new Set((values ?? []).map(languageName).filter(Boolean))];
+
+      /** Para buscar sin importar mayúsculas ni tildes: "Amélie" se encuentra con "amelie". */
+      const searchText = (text) =>
+        String(text ?? '')
+          .normalize('NFD')
+          .replace(/[̀-ͯ]/g, '')
+          .toLowerCase()
+          .trim();
+
+      /** Si un título de Library coincide con lo que se busca: cada palabra tiene que estar en el título o el año. */
+      function matchesLibrarySearch(entry, query) {
+        const words = searchText(query).split(/\s+/).filter(Boolean);
+        if (!words.length) return true;
+        const haystack = searchText(`${entry.title} ${entry.year ?? ''}`);
+        return words.every((word) => haystack.includes(word));
+      }
+
+      const episodeCode = (episode) => `T${String(episode.season ?? 0).padStart(2, '0')}E${String(episode.episode ?? 0).padStart(2, '0')}`;
+
+      /** "T01E01 y T01E02", "T02 · 6 capítulos" o "3 temporadas · 50 capítulos". */
+      function episodesLabel(entry) {
+        const list = entry.episodeList ?? [];
+        if (list.length && list.length <= 2) return list.map(episodeCode).join(' y ');
+        const count = entry.episodes ?? list.length;
+        const chapters = count === 1 ? '1 capítulo' : `${count} capítulos`;
+        const seasons = entry.seasons ?? [];
+        if (seasons.length === 1) return `T${String(seasons[0]).padStart(2, '0')} · ${chapters}`;
+        if (seasons.length > 1) return `${seasons.length} temporadas · ${chapters}`;
+        return chapters;
+      }
+
+      /** "18 nov", o "18 de nov de 2025" si es de otro año. */
+      function arrivalDate(iso, now = Date.now()) {
+        const date = iso ? new Date(iso) : null;
+        if (!date || Number.isNaN(date.getTime())) return NO_DATA;
+        const options = { day: 'numeric', month: 'short' };
+        if (date.getFullYear() !== new Date(now).getFullYear()) options.year = 'numeric';
+        return date.toLocaleDateString('es-AR', options);
+      }
+
+      /** Lo que dice la tarjeta debajo del título: tipo, capítulos, llegada, tamaño, calidad e idioma. */
+      function libraryFacts(entry, recent = false, now = Date.now()) {
+        const facts = [entry.kind === 'tv' ? 'Serie' : 'Película'];
+        if (entry.kind === 'tv') facts.push(episodesLabel(entry));
+        facts.push(`llegó ${arrivalDate(recent ? entry.arrivedAt : entry.addedAt, now)}`);
+        if (typeof entry.sizeBytes === 'number' && entry.sizeBytes > 0) facts.push(formatBytes(entry.sizeBytes));
+        if (entry.quality) facts.push(entry.quality);
+        const languages = languageList(entry.languages);
+        if (languages.length) facts.push(languages.join(', '));
+        return facts.join(' · ');
+      }
+
+      /**
+       * La web de Jellyfin para ese título, en la dirección `base` que esté usando la app. Si Jellyfin no lo tiene o no hay
+       * clave para buscarlo, abre su búsqueda con el título.
+       */
+      function jellyfinItemUrl(base, entry, serverId) {
+        const id = /^[a-f0-9]{32}$/i.test(entry.jellyfinId ?? '') ? entry.jellyfinId : null;
+        if (id && serverId) return `${base}/web/#/details?id=${id}&serverId=${encodeURIComponent(serverId)}`;
+        return `${base}/web/#/search?query=${encodeURIComponent(entry.title ?? '')}`;
+      }
+
+      /** Subtítulos de Bazarr en una línea: "Español (externo), Inglés (en 2 de 3)". */
+      function subtitlesText(subtitles) {
+        if (!subtitles) return null;
+        if (!subtitles.ok) return subtitles.error ?? 'Bazarr no respondió: no se pueden ver los subtítulos';
+        if (!subtitles.languages?.length) return 'Ninguno según Bazarr';
+        return subtitles.languages
+          .map((language) => {
+            const notes = [];
+            if (language.forced) notes.push('forzados');
+            if (subtitles.of > 1 && language.count < subtitles.of) notes.push(`en ${language.count} de ${subtitles.of}`);
+            if (!language.external) notes.push('dentro del archivo');
+            const name = languageName(language.code) ?? languageName(language.name) ?? '?';
+            return notes.length ? `${name} (${notes.join(', ')})` : name;
+          })
+          .join(', ');
+      }
+
       // --- Fin de textos ---
 
       // --- Dibujo ---
@@ -4790,6 +5059,9 @@
         "key": "<path d=\"M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z\"/><circle cx=\"16.5\" cy=\"7.5\" r=\".5\" fill=\"currentColor\"/>",
         "tv":"<rect width=\"20\" height=\"15\" x=\"2\" y=\"7\" rx=\"2\" ry=\"2\"/><polyline points=\"17 2 12 7 7 2\"/>",
         "trash":"<path d=\"M3 6h18\"/><path d=\"M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6\"/><path d=\"M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2\"/><path d=\"M10 11v6\"/><path d=\"M14 11v6\"/>",
+        "library": "<path d=\"m16 6 4 14\"/><path d=\"M12 6v14\"/><path d=\"M8 8v12\"/><path d=\"M4 4v16\"/>",
+        "search": "<circle cx=\"11\" cy=\"11\" r=\"8\"/><path d=\"m21 21-4.3-4.3\"/>",
+        "chevron-down": "<path d=\"m6 9 6 6 6-6\"/>",
         "smartphone": "<rect width=\"14\" height=\"20\" x=\"5\" y=\"2\" rx=\"2\" ry=\"2\"/><path d=\"M12 18h.01\"/>",
         "tablet": "<rect width=\"16\" height=\"20\" x=\"4\" y=\"2\" rx=\"2\" ry=\"2\"/><path d=\"M12 18h.01\"/>",
         "android": "<path d=\"M6 10a6 6 0 0 1 12 0z\"/><path d=\"m8 4.5 1.3 1.8\"/><path d=\"m16 4.5-1.3 1.8\"/><path d=\"M9.5 7.6h.01\"/><path d=\"M14.5 7.6h.01\"/><rect width=\"12\" height=\"7\" x=\"6\" y=\"11.5\" rx=\"1.5\"/><path d=\"M9.5 18.5V21\"/><path d=\"M14.5 18.5V21\"/><path d=\"M3.5 12v5\"/><path d=\"M20.5 12v5\"/>",
@@ -5119,6 +5391,8 @@
       const REQUEST_ORIGINS = {
         seerr: ['Seerr', 'Pedido desde Seerr'],
         telegram: ['Telegram', 'Agregado directo en Radarr o Sonarr: por el bot de Telegram (o a mano)'],
+        // Solo en Library: lo que ya estaba en la biblioteca o no llegó como pedido. No se puede borrar desde la app.
+        none: ['Sin pedido', 'Ya estaba en la biblioteca o no llegó por un pedido: no se borra desde acá'],
       };
 
       function originChip(request) {
@@ -5425,6 +5699,268 @@
         );
       }
 
+      // --- Library ---
+      // Lo que ya llegó a Radarr y Sonarr: Recientes (los últimos 30 días) y Biblioteca (todo lo que tiene archivo). Sale de
+      // /api/library, una foto que la PC arma cada pocos minutos, y no de /api/status. Qué se puede borrar lo decide la PC:
+      // la papelera abre el mismo borrado de pedidos que Requests y Downloads, y la PC lo vuelve a comprobar.
+      const LIBRARY_PAGE = 60;
+      const LIBRARY_RELOAD_MS = 60000;
+      let libraryData = null;
+      let libraryError = null;
+      let libraryLoading = false;
+      let libraryLoadedAt = 0;
+      let libraryTab = 'recent';
+      let libraryQuery = '';
+      let libraryShown = LIBRARY_PAGE;
+      let librarySearchBox = null;
+      const libraryOpen = new Set();
+      const libraryDetails = new Map();
+
+      /** Trae la foto si no hay o pasó un minuto. `force`: la pidió la usuaria, o se acaba de borrar algo. */
+      async function loadLibrary({ force = false } = {}) {
+        if (libraryLoading || !pcHost) return;
+        if (!force && libraryData && Date.now() - libraryLoadedAt < LIBRARY_RELOAD_MS) return;
+        libraryLoading = true;
+        if (!libraryData) renderLibrary();
+        try {
+          const response = await apiRequest(pcHost, '/api/library' + (force ? '?refresh=1' : ''), { timeoutMs: 60000 });
+          if (!response.ok) throw new Error('La PC respondió con un error');
+          libraryData = await response.json();
+          libraryError = null;
+          libraryLoadedAt = Date.now();
+        } catch (error) {
+          libraryError = error.message === 'La PC respondió con un error' ? error.message : 'No llego a la PC';
+        } finally {
+          libraryLoading = false;
+        }
+        renderLibrary();
+      }
+
+      /** Después de borrar: los detalles guardados pueden ser de algo que ya no está. */
+      function libraryChanged() {
+        libraryDetails.clear();
+        if (libraryData) loadLibrary({ force: true });
+      }
+
+      function libraryIconButton(name, label, onClick) {
+        const button = el('button', 'icon-button', icon(name, 16));
+        button.type = 'button';
+        button.title = label;
+        button.setAttribute('aria-label', label);
+        button.addEventListener('click', onClick);
+        return button;
+      }
+
+      /** El buscador se arma una sola vez: así escribir no lo reemplaza ni cierra el teclado del celu. */
+      function libraryFilter() {
+        if (!librarySearchBox) {
+          const input = el('input');
+          input.type = 'search';
+          input.placeholder = 'Buscar por título';
+          input.autocomplete = 'off';
+          input.spellcheck = false;
+          input.setAttribute('aria-label', 'Buscar por título');
+          input.addEventListener('input', () => {
+            libraryQuery = input.value;
+            libraryShown = LIBRARY_PAGE;
+            renderLibraryList();
+          });
+          librarySearchBox = el('label', 'lib-search', icon('search', 16), input);
+        }
+        return librarySearchBox;
+      }
+
+      function renderLibrary() {
+        for (const tab of document.querySelectorAll('.lib-tab')) tab.setAttribute('aria-selected', String(tab.dataset.tab === libraryTab));
+        const container = $('library');
+        if (!libraryData) {
+          $('library-meta').textContent = libraryLoading ? 'Cargando…' : '';
+          container.replaceChildren(
+            libraryError ? issueList([libraryError], true) : el('div', 'empty', el('p', 'muted', 'Leyendo Radarr y Sonarr…')),
+          );
+          return;
+        }
+        const recent = libraryTab === 'recent';
+        $('library-meta').textContent = recent
+          ? `${libraryData.recent.length} en los últimos ${libraryData.recentDays} días`
+          : `${libraryData.items.length} títulos`;
+        const notices = [];
+        if (libraryError) notices.push(issueList([`No se pudo actualizar: ${libraryError}`]));
+        if (libraryData.errors.length) notices.push(issueList(libraryData.errors.map((error) => `${error.name}: ${error.message}`), true));
+        const nodes = libraryLayout(container);
+        nodes.notices.replaceChildren(...notices);
+        nodes.notices.hidden = !notices.length;
+        nodes.search.hidden = recent;
+        renderLibraryList();
+      }
+
+      /**
+       * Avisos, buscador y lista quedan siempre en el mismo lugar: si se movieran al llegar datos nuevos, el buscador perdería
+       * el foco y en el celu se cerraría el teclado.
+       */
+      let libraryNodes = null;
+      function libraryLayout(container) {
+        if (!libraryNodes) {
+          const list = el('div');
+          list.id = 'library-list';
+          libraryNodes = { notices: el('div', 'stack lib-top'), search: libraryFilter(), list };
+          libraryNodes.search.classList.add('lib-top');
+        }
+        const { notices, search, list } = libraryNodes;
+        const children = container.children;
+        if (children.length !== 3 || children[0] !== notices || children[1] !== search || children[2] !== list) {
+          container.replaceChildren(notices, search, list);
+        }
+        return libraryNodes;
+      }
+
+      function renderLibraryList() {
+        const list = $('library-list');
+        if (!list || !libraryData) return;
+        const recent = libraryTab === 'recent';
+        const entries = recent ? libraryData.recent : libraryData.items.filter((entry) => matchesLibrarySearch(entry, libraryQuery));
+        if (!entries.length) {
+          let text = 'Radarr y Sonarr no tienen nada con archivo.';
+          if (recent) text = `No llegó nada en los últimos ${libraryData.recentDays} días.`;
+          else if (libraryQuery.trim()) text = 'Nada coincide con esa búsqueda.';
+          list.replaceChildren(el('div', 'empty', el('p', null, text)));
+          return;
+        }
+        const shown = entries.slice(0, libraryShown);
+        const left = entries.length - shown.length;
+        const more = left > 0
+          ? actionButton(`Mostrar ${Math.min(left, LIBRARY_PAGE)} más (quedan ${left})`, () => {
+              libraryShown += LIBRARY_PAGE;
+              renderLibraryList();
+            })
+          : null;
+        more?.classList.add('lib-more');
+        list.replaceChildren(el('div', 'stack', ...shown.map((entry) => libraryCard(entry, recent)), more));
+      }
+
+      function libraryCard(entry, recent) {
+        const title = requestTitle(entry);
+        const poster = entry.kind === 'tv' ? el('span', 'poster', icon('tv', 20)) : requestPoster(entry, 20);
+        const details = el('div', 'lib-details');
+        const open = libraryOpen.has(entry.key);
+        details.hidden = !open;
+        const toggle = libraryIconButton('chevron-down', 'Ver detalles', () => {
+          const opening = details.hidden;
+          details.hidden = !opening;
+          toggle.setAttribute('aria-expanded', String(opening));
+          if (opening) {
+            libraryOpen.add(entry.key);
+            fillLibraryDetails(details, entry);
+          } else {
+            libraryOpen.delete(entry.key);
+          }
+        });
+        toggle.setAttribute('aria-expanded', String(open));
+        if (open) fillLibraryDetails(details, entry);
+        return el(
+          'article',
+          'card lib-card',
+          el(
+            'div',
+            'request big',
+            poster,
+            el(
+              'div',
+              'request-text',
+              el('span', 'request-title', title),
+              el('p', 'muted small request-facts', originChip(entry), libraryFacts(entry, recent)),
+            ),
+            el('div', 'lib-actions', jellyfinItemButton(entry), toggle, entry.deletable && entry.deleteId ? deleteButton(entry.deleteId, title) : null),
+          ),
+          details,
+        );
+      }
+
+      /** Abre el título en la web de Jellyfin, con la dirección que esté usando la app. Si Jellyfin no lo tiene, su búsqueda. */
+      function jellyfinItemButton(entry) {
+        const part = lastStatus?.parts?.find((candidate) => candidate.id === 'jellyfin');
+        const found = Boolean(entry.jellyfinId && libraryData?.jellyfin?.serverId);
+        const button = libraryIconButton('arrow-up-right', found ? 'Abrir en Jellyfin' : 'Buscar en Jellyfin', () =>
+          openInBrowser(jellyfinItemUrl(serviceUrl(part?.port ?? 8096), entry, libraryData?.jellyfin?.serverId)),
+        );
+        button.disabled = part?.state === 'down';
+        return button;
+      }
+
+      function libraryDetailsRoute(entry) {
+        const files = entry.fileIds?.length ? '?files=' + entry.fileIds.join(',') : '';
+        return `/api/library/${entry.kind === 'tv' ? 'tv' : 'movie'}/${entry.id}${files}`;
+      }
+
+      /** Los detalles se piden una vez por tarjeta; si la lista se vuelve a dibujar, se reusan. */
+      async function fillLibraryDetails(node, entry) {
+        const route = libraryDetailsRoute(entry);
+        if (!libraryDetails.has(route)) {
+          const request = (async () => {
+            const response = await apiRequest(pcHost, route, { timeoutMs: 30000 });
+            let json = {};
+            try {
+              json = await response.json();
+            } catch {}
+            if (!response.ok) throw new Error(json.error ?? 'No se pudieron leer los detalles');
+            return json;
+          })();
+          libraryDetails.set(route, request);
+          request.catch(() => libraryDetails.delete(route));
+        }
+        node.replaceChildren(el('p', 'muted small', 'Cargando detalles…'));
+        try {
+          const details = await libraryDetails.get(route);
+          node.replaceChildren(...libraryDetailsContent(details));
+        } catch (error) {
+          node.replaceChildren(el('p', 'action-result failed', error.message === 'Failed to fetch' ? 'No llego a la PC' : error.message));
+        }
+      }
+
+      function libraryDetailsContent(details) {
+        const rows = [];
+        const row = (label, ...value) => rows.push(el('dt', null, label), el('dd', null, ...value));
+        const files = details.files ?? [];
+        if (details.torrents?.length) {
+          row(details.torrents.length === 1 ? 'Torrent' : 'Torrents', ...details.torrents.map((name) => el('div', null, el('code', null, name))));
+        }
+        const releases = [...new Set(files.map((file) => file.release).filter((name) => name && !details.torrents?.includes(name)))];
+        if (details.kind === 'movie' && releases.length) row('Release', el('code', null, releases[0]));
+        row('Carpeta', el('code', null, details.folder ?? NO_DATA));
+        if (details.kind === 'movie' && files[0]) row('Archivo', el('code', null, files[0].name));
+        const size = formatBytes(details.sizeBytes);
+        row('Tamaño', details.totalFiles > 1 ? `${size} en ${details.totalFiles} archivos` : size);
+        const qualities = [...new Set(files.map((file) => file.quality).filter(Boolean))];
+        row('Calidad', qualities.join(', ') || NO_DATA);
+        const resolutions = [...new Set(files.map((file) => [file.resolution, file.videoCodec].filter(Boolean).join(' ')).filter(Boolean))];
+        if (resolutions.length) row('Video', resolutions.slice(0, 3).join(', '));
+        const audio = languageList(files.flatMap((file) => (file.audio?.length ? file.audio : file.languages ?? [])));
+        row('Audio', audio.join(', ') || 'Sin datos');
+        const subtitles = [el('span', details.subtitles?.ok ? null : 'lib-failed', subtitlesText(details.subtitles) ?? NO_DATA)];
+        if (details.subtitles?.ok && details.subtitles.missing?.length) {
+          subtitles.push(el('div', 'muted', 'Bazarr todavía busca: ' + languageList(details.subtitles.missing.map((language) => language.code ?? language.name)).join(', ')));
+        }
+        if (!details.subtitles?.ok) {
+          const embedded = languageList(files.flatMap((file) => file.embeddedSubtitles ?? []));
+          if (embedded.length) subtitles.push(el('div', 'muted', 'Dentro del archivo, según ' + (details.kind === 'tv' ? 'Sonarr' : 'Radarr') + ': ' + embedded.join(', ')));
+        }
+        row('Subtítulos', ...subtitles);
+        const nodes = [el('dl', null, ...rows)];
+        if (details.kind === 'tv' && files.length) {
+          nodes.push(
+            el(
+              'ul',
+              'lib-files',
+              ...files.map((file) =>
+                el('li', null, el('code', null, file.name), el('span', 'muted', ' · ' + [formatBytes(file.sizeBytes), file.quality].filter(Boolean).join(' · '))),
+              ),
+            ),
+          );
+          if (details.totalFiles > files.length) nodes.push(el('p', 'muted small', `Y ${details.totalFiles - files.length} archivos más.`));
+        }
+        return nodes;
+      }
+
       // --- Storage ---
       function renderStorageSummary(disks) {
         const usage = storageUsage(disks.items);
@@ -5558,7 +6094,7 @@
       }
 
       // --- Navegación ---
-      const MORE_VIEWS = ['storage', 'network', 'jellyfin', 'devices', 'settings'];
+      const MORE_VIEWS = ['library', 'storage', 'network', 'jellyfin', 'devices', 'settings'];
 
       function showView(name) {
         for (const view of document.querySelectorAll('.view')) view.hidden = view.id !== `view-${name}`;
@@ -5570,6 +6106,10 @@
         else $('nav-more').removeAttribute('aria-current');
         document.body.dataset.view = name;
         if (name === 'jellyfin') loadJellyfin();
+        if (name === 'library') {
+          renderLibrary();
+          loadLibrary();
+        }
         if (name === 'devices' && !isMobile) loadDevices();
         if (name === 'overview') loadHomeJellyfin();
         setDrawer(false);
@@ -6389,6 +6929,7 @@
           render(lastStatus);
           hideSplash();
           if (document.body.dataset.view === 'jellyfin') loadJellyfin();
+          if (document.body.dataset.view === 'library') loadLibrary();
           if (document.body.dataset.view === 'overview') loadHomeJellyfin();
           if (isMobile) renderConnection();
           $('banner').hidden = true;
@@ -6416,6 +6957,17 @@
       }
 
       $('refresh').addEventListener('click', refresh);
+      // En Library, actualizar también vuelve a leer Radarr y Sonarr (la PC lo hace como mucho cada 30 s).
+      $('refresh').addEventListener('click', () => {
+        if (document.body.dataset.view === 'library') loadLibrary({ force: true });
+      });
+      for (const tab of document.querySelectorAll('.lib-tab')) {
+        tab.addEventListener('click', () => {
+          libraryTab = tab.dataset.tab;
+          libraryShown = LIBRARY_PAGE;
+          renderLibrary();
+        });
+      }
       $('stop-all').addEventListener('click', () => runAllParts('stop'));
       $('start-all').addEventListener('click', () => runAllParts('start'));
       $('open-seerr').addEventListener('click', openSeerr);
