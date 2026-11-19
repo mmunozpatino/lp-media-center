@@ -1,9 +1,15 @@
 // Actualiza la app de Windows sola: baja el instalador de la última versión publicada en GitHub, comprueba
-// su huella SHA-256 y lo ejecuta en silencio. El instalador cierra la app y su backend (build/installer.nsh),
+// su tamaño y huella SHA-256 y lo ejecuta en silencio. El instalador cierra la app y su backend (build/installer.nsh),
 // instala encima y, con --force-run, vuelve a abrir la app.
 //
-// Qué bajar lo decide este proceso con la API de GitHub, nunca la interfaz: así una página no puede hacerle
-// ejecutar otro archivo. Las funciones de arriba no usan Electron y se prueban con Node.
+// La última versión sale de la redirección de github.com/<repo>/releases/latest, y las novedades, el tamaño y la huella,
+// de version.json, que se publica con cada versión (scripts/version-json.mjs). Ninguno de los dos cuenta para el límite
+// de la API de GitHub (60 consultas por hora por IP, compartidas por todos los equipos de la casa). La API se usa solo si
+// la versión no trae version.json (las publicadas antes de que existiera).
+//
+// Qué bajar lo decide este proceso, nunca la interfaz: así una página no puede hacerle ejecutar otro archivo. La
+// dirección del instalador la arma este código, no el archivo. Las funciones de arriba no usan Electron y se prueban
+// con Node.
 
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -14,6 +20,12 @@ const REPO = 'mmunozpatino/lp-media-center';
 const RELEASES_API = `https://api.github.com/repos/${REPO}/releases/latest`;
 const INSTALLER_NAME = 'LP-Cine-Vault-Setup.exe';
 const DOWNLOAD_PREFIX = `https://github.com/${REPO}/releases/download/`;
+const MANIFEST_NAME = 'version.json';
+// version.json pesa menos de 1 KB más las novedades.
+const MAX_MANIFEST_BYTES = 256 * 1024;
+// La respuesta de la API, con las novedades y todos los archivos.
+const MAX_API_BYTES = 2 * 1024 * 1024;
+const TAG = /^v\d+(?:\.\d+){1,3}$/;
 // El instalador pesa unos 120 MB; más que esto no es nuestro.
 const MAX_BYTES = 400 * 1024 * 1024;
 // Lo que electron-builder le pasa a su propio instalador al actualizar: sin ventanas y abriendo la app al final.
@@ -142,17 +154,105 @@ function rateLimitMessage(response) {
   return `GitHub limitó las consultas por un rato: no es tu conexión.${hour ? ` Probá de nuevo después de las ${hour}.` : ' Probá de nuevo en una hora.'}`;
 }
 
+/** El cuerpo de una respuesta como texto, hasta `max` bytes: más que eso no es lo esperado. */
+async function readLimitedText(response, max) {
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const chunks = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > max) {
+      reader.cancel().catch(() => {});
+      throw new Error('La respuesta de GitHub es más grande de lo esperado.');
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 /**
- * Busca, baja e instala. `currentVersion` sale de build-info.json; sin ella es una app de desarrollo.
- * Devuelve { version } cuando el instalador ya arrancó; la app se cierra sola poco después.
+ * De version.json, la versión, sus novedades y el instalador: { version, notes, installer }. Falla si la versión no es
+ * la del tag o si falta el tamaño o la huella. La dirección del instalador sale del tag, nunca del archivo.
  */
-async function installLatest({ currentVersion, tempDir, fetchImpl, onProgress, launch = launchInstaller }) {
-  if (!currentVersion) throw new Error('Esta es una versión de desarrollo: no se actualiza sola.');
+function parseManifest(manifest, tag) {
+  if (!TAG.test(String(tag))) throw new Error('Versión inválida.');
+  const version = tag.slice(1);
+  if (manifest?.version !== version) throw new Error('La versión publicada no coincide.');
+  const asset = manifest.assets?.[INSTALLER_NAME];
+  if (!asset) throw new Error('La versión publicada no trae el instalador de Windows.');
+  if (!/^[a-f0-9]{64}$/.test(String(asset.sha256 ?? ''))) throw new Error('No se informa la huella del instalador: no se puede comprobar.');
+  if (!Number.isSafeInteger(asset.size) || asset.size <= 0 || asset.size > MAX_BYTES) throw new Error('El tamaño del instalador no es el esperado.');
+  return {
+    version,
+    notes: typeof manifest.notes === 'string' ? manifest.notes.trim() : '',
+    installer: { version, url: `${DOWNLOAD_PREFIX}${tag}/${INSTALLER_NAME}`, sha256: asset.sha256, size: asset.size },
+  };
+}
+
+/** version.json de esa versión, ya validado. Null si esa versión no lo trae (las publicadas antes de que existiera). */
+async function fetchManifest(tag, fetchImpl) {
+  if (!TAG.test(String(tag))) throw new Error('Versión inválida.');
+  const response = await fetchImpl(`${DOWNLOAD_PREFIX}${tag}/${MANIFEST_NAME}`, { redirect: 'follow', cache: 'no-store' });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`GitHub respondió ${response.status} al buscar la versión nueva.`);
+  let manifest;
+  try {
+    manifest = JSON.parse(await readLimitedText(response, MAX_MANIFEST_BYTES));
+  } catch (error) {
+    throw new Error(/más grande/.test(error.message) ? error.message : 'La versión publicada trae un version.json dañado.');
+  }
+  return parseManifest(manifest, tag);
+}
+
+// Hasta cuándo la API cortó por su límite: no se vuelve a consultar antes. Los tests pasan su propio objeto.
+const sharedApiLimit = { until: 0, message: '' };
+
+/** La última versión según la API de GitHub, solo para las versiones sin version.json. */
+async function releaseFromApi(fetchImpl, limit = sharedApiLimit) {
+  if (Date.now() < limit.until) throw new Error(limit.message);
   const response = await fetchImpl(RELEASES_API, { headers: { Accept: 'application/vnd.github+json' } });
   const limited = rateLimitMessage(response);
-  if (limited) throw new Error(limited);
+  if (limited) {
+    const reset = Number(response.headers.get('x-ratelimit-reset'));
+    limit.until = Number.isFinite(reset) && reset > 0 ? reset * 1000 : Date.now() + 60 * 60 * 1000;
+    limit.message = limited;
+    throw new Error(limited);
+  }
   if (!response.ok) throw new Error(`GitHub respondió ${response.status} al buscar la versión nueva.`);
-  const installer = pickInstaller(await response.json());
+  return JSON.parse(await readLimitedText(response, MAX_API_BYTES));
+}
+
+/**
+ * Para el aviso de versión nueva: { tag, notes }. Si la instalada ya es la última, no baja nada más. Las novedades salen
+ * de version.json; si la versión no lo trae, de la API, y si esta falla, quedan vacías: igual se avisa.
+ */
+async function latestRelease({ currentVersion, fetchImpl, latestTag = () => fetchLatestTag(fetchImpl), apiLimit }) {
+  const tag = await latestTag();
+  if (!currentVersion || !isNewerVersion(tag, currentVersion)) return { tag, notes: '' };
+  const manifest = await fetchManifest(tag, fetchImpl);
+  if (manifest) return { tag, notes: manifest.notes };
+  try {
+    const release = await releaseFromApi(fetchImpl, apiLimit);
+    return { tag, notes: release.tag_name === tag && typeof release.body === 'string' ? release.body.trim() : '' };
+  } catch {
+    return { tag, notes: '' };
+  }
+}
+
+/**
+ * Busca, baja e instala. `currentVersion` sale de build-info.json; sin ella es una app de desarrollo. `latestTag` da el
+ * tag de la última versión (en la app, latestTagWithNet). Devuelve { version } cuando el instalador ya arrancó; la app
+ * se cierra sola poco después.
+ */
+async function installLatest({ currentVersion, tempDir, fetchImpl, latestTag = () => fetchLatestTag(fetchImpl), onProgress, launch = launchInstaller, apiLimit }) {
+  if (!currentVersion) throw new Error('Esta es una versión de desarrollo: no se actualiza sola.');
+  const tag = await latestTag();
+  if (!isNewerVersion(tag, currentVersion)) throw new Error('Ya tenés la última versión.');
+  const manifest = await fetchManifest(tag, fetchImpl);
+  const installer = manifest ? manifest.installer : pickInstaller(await releaseFromApi(fetchImpl, apiLimit));
   if (!isNewerVersion(installer.version, currentVersion)) throw new Error('Ya tenés la última versión.');
   const dir = path.join(tempDir, 'lp-cine-vault-actualizacion');
   fs.rmSync(dir, { recursive: true, force: true });
@@ -175,6 +275,8 @@ module.exports = {
   latestTagWithNet,
   installLatest,
   isNewerVersion,
+  latestRelease,
+  parseManifest,
   pickInstaller,
   rateLimitMessage,
   tagFromLocation,

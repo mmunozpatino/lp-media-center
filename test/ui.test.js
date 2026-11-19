@@ -7,9 +7,9 @@ import { describe, it } from 'node:test';
 // La interfaz es un solo HTML: se prueba la sección de textos, que no toca el DOM.
 const html = readFileSync(new URL('../ui/index.html', import.meta.url), 'utf8');
 const textos = /--- Textos ---([\s\S]*)\/\/ --- Fin de textos ---/.exec(html)[1];
-const { isNewerVersion, pickReleaseAsset, tagFromReleaseUrl, releaseDownloadUrl, rateLimitedUntil, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, deviceKind, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesHealth, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote, languageName, languageList, matchesLibrarySearch, episodesLabel, arrivalDate, libraryFacts, jellyfinItemUrl, subtitlesText } =
+const { isNewerVersion, releaseDownloadUrl, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, deviceKind, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesHealth, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote, languageName, languageList, matchesLibrarySearch, episodesLabel, arrivalDate, libraryFacts, jellyfinItemUrl, subtitlesText } =
   new Function(
-    `${textos}; return { isNewerVersion, pickReleaseAsset, tagFromReleaseUrl, releaseDownloadUrl, rateLimitedUntil, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, deviceKind, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesHealth, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote, languageName, languageList, matchesLibrarySearch, episodesLabel, arrivalDate, libraryFacts, jellyfinItemUrl, subtitlesText };`,
+    `${textos}; return { isNewerVersion, releaseDownloadUrl, changeCount, changelogDate, changelogVersions, newsTitle, newsToShow, releaseTitles, PART_PURPOSE, PRODUCT_NAME, actionLabel, addSample, availableAction, brandParts, describeChange, deviceKind, diskName, diskPercent, disksMeta, downloadLabel, downloadsMeta, downloadsToday, formatBytes, formatSpeed, formatTimeLeft, formatUptime, globalStatus, lastUpdateText, partUptime, partsForAction, partsMeta, posterUrl, requestFacts, requestsMeta, servicesHealth, servicesMonitored, servicesOnline, sparkPath, sparkPoints, stateLabel, statusWord, storageUsage, summarize, timeAgo, transferNote, languageName, languageList, matchesLibrarySearch, episodesLabel, arrivalDate, libraryFacts, jellyfinItemUrl, subtitlesText };`,
   )();
 
 const require = createRequire(import.meta.url);
@@ -218,6 +218,9 @@ describe('estructura de la interfaz', () => {
     assert.match(csp, /default-src 'none'/);
     assert.match(csp, /img-src https:\/\/image\.tmdb\.org data:/);
     assert.doesNotMatch(html, /fonts\.googleapis|<link /);
+    // Las actualizaciones las resuelve la parte nativa: la pantalla no habla con la API de GitHub.
+    assert.doesNotMatch(csp, /api\.github\.com/);
+    assert.doesNotMatch(html, /api\.github\.com/);
   });
 
   it('tiene las vistas y conserva los botones de acción', () => {
@@ -483,31 +486,9 @@ describe('actualizaciones', () => {
     assert.equal(isNewerVersion(null, '0.1.0'), false);
   });
 
-  it('elige el APK en Android y el instalador en Windows', () => {
-    const assets = [{ name: 'LP-Cine-Vault.apk' }, { name: 'LP-Cine-Vault-Setup.exe' }, { name: 'otro.blockmap' }];
-    assert.equal(pickReleaseAsset(assets, true).name, 'LP-Cine-Vault.apk');
-    assert.equal(pickReleaseAsset(assets, false).name, 'LP-Cine-Vault-Setup.exe');
-    assert.equal(pickReleaseAsset([], true), null);
-    assert.equal(pickReleaseAsset(undefined, false), null);
-  });
-
-  it('lee la última versión de la redirección de github.com, sin la API', () => {
-    assert.equal(tagFromReleaseUrl('https://github.com/mmunozpatino/lp-media-center/releases/tag/v0.1.15'), 'v0.1.15');
-    assert.equal(tagFromReleaseUrl('/mmunozpatino/lp-media-center/releases/tag/v0.1.15'), 'v0.1.15');
-    for (const bad of [null, '', 'https://github.com/otra/lp-media-center/releases/tag/v1.0', 'https://evil.example/mmunozpatino/lp-media-center/releases/tag/v1.0', 'https://github.com/mmunozpatino/lp-media-center/releases']) {
-      assert.equal(tagFromReleaseUrl(bad), null, String(bad));
-    }
+  it('arma la descarga a mano de cada equipo, sin la API', () => {
     assert.equal(releaseDownloadUrl('v0.1.15', true), 'https://github.com/mmunozpatino/lp-media-center/releases/download/v0.1.15/LP-Cine-Vault.apk');
     assert.equal(releaseDownloadUrl('v0.1.15', false), 'https://github.com/mmunozpatino/lp-media-center/releases/download/v0.1.15/LP-Cine-Vault-Setup.exe');
-  });
-
-  it('reconoce el corte por el límite de la API y hasta cuándo dura', () => {
-    const headers = (values) => ({ get: (name) => values[name] ?? null });
-    assert.equal(rateLimitedUntil(403, headers({ 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1800000000' })), 1800000000 * 1000);
-    assert.equal(rateLimitedUntil(429, headers({ 'retry-after': '60' }), 1000), 61000);
-    assert.equal(rateLimitedUntil(429, headers({}), 0), 3600000);
-    assert.equal(rateLimitedUntil(403, headers({ 'x-ratelimit-remaining': '12' })), null); // Otro 403: no es el límite.
-    assert.equal(rateLimitedUntil(200, headers({})), null);
   });
 });
 

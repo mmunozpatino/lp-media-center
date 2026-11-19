@@ -178,13 +178,33 @@ public class LpNetworkPlugin extends Plugin {
         });
     }
 
-    /** { tag: "v0.1.15" }: la última versión publicada, de la redirección de github.com (sin el límite de la API). */
+    /**
+     * { tag: "v0.1.15", notes }: la última versión publicada, de la redirección de github.com, y sus novedades, de
+     * version.json (ninguno cuenta para el límite de la API). Si ya es la instalada, no baja nada más y notes queda
+     * vacío. Si la versión no trae version.json, las novedades salen de la API, y si esta falla, quedan vacías.
+     */
     @PluginMethod
-    public void latestVersion(PluginCall call) {
+    public void latestRelease(PluginCall call) {
         updates.execute(() -> {
             try {
+                String tag = AppUpdater.latestTag();
+                String current = currentVersion();
+                String notes = "";
+                if (current != null && AppUpdater.isNewer(tag, current)) {
+                    AppUpdater.Release release = AppUpdater.fromManifest(tag);
+                    if (release == null) {
+                        try {
+                            AppUpdater.Release fromApi = AppUpdater.latestFromApi();
+                            if (tag.equals("v" + fromApi.version)) release = fromApi;
+                        } catch (Exception e) {
+                            android.util.Log.i("LpNetwork", "Novedades sin la API: " + e.getMessage());
+                        }
+                    }
+                    if (release != null) notes = release.notes;
+                }
                 JSObject result = new JSObject();
-                result.put("tag", AppUpdater.latestTag());
+                result.put("tag", tag);
+                result.put("notes", notes);
                 call.resolve(result);
             } catch (Exception e) {
                 call.reject(e instanceof IOException && e.getMessage() != null ? e.getMessage() : "No se pudo consultar GitHub.");

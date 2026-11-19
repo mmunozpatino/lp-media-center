@@ -7,7 +7,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { INSTALLER_ARGS, downloadInstaller, installLatest, isNewerVersion, pickInstaller } = require('../electron/updater.cjs');
+const { INSTALLER_ARGS, downloadInstaller, installLatest, isNewerVersion, latestRelease, parseManifest, pickInstaller } = require('../electron/updater.cjs');
 
 const BYTES = Buffer.from('instalador de ejemplo '.repeat(1000));
 const SHA = crypto.createHash('sha256').update(BYTES).digest('hex');
@@ -36,10 +36,32 @@ function streamResponse(bytes, status = 200) {
   return new Response(body, { status });
 }
 
-function fakeFetch({ rel = release(), bytes = BYTES } = {}) {
+const LATEST = 'https://github.com/mmunozpatino/lp-media-center/releases/latest';
+const manifestUrl = (tag) => `https://github.com/mmunozpatino/lp-media-center/releases/download/${tag}/version.json`;
+
+function manifest({ version = '0.1.9', sha256 = SHA, size = BYTES.length, notes = '- Uno\n- Dos\n' } = {}) {
+  return {
+    version,
+    notes,
+    assets: { 'LP-Cine-Vault.apk': { size: 10, sha256: SHA }, 'LP-Cine-Vault-Setup.exe': { size, sha256 } },
+  };
+}
+
+/**
+ * Simula a GitHub: la redirección de /releases/latest a `tag`, version.json (`man`, o 404 si es null), la API (`rel`)
+ * y el instalador.
+ */
+function fakeFetch({ rel = release(), bytes = BYTES, tag = 'v0.1.9', man = null, manText = null } = {}) {
   const calls = [];
-  const fetchImpl = async (url) => {
+  const fetchImpl = async (url, options = {}) => {
     calls.push(url);
+    if (url === LATEST && options.method === 'HEAD') {
+      return new Response(null, { status: 302, headers: { location: `https://github.com/mmunozpatino/lp-media-center/releases/tag/${tag}` } });
+    }
+    if (url === manifestUrl(tag)) {
+      if (manText !== null) return new Response(manText);
+      return man ? Response.json(man) : new Response('Not Found', { status: 404 });
+    }
     if (url.startsWith('https://api.github.com/')) return Response.json(rel);
     if (url === URL_OK) return streamResponse(bytes);
     return new Response('no', { status: 404 });
@@ -128,14 +150,30 @@ test('lee la última versión de la redirección, sin seguirla ni usar la API', 
 });
 
 test('si la API cortó por su límite, lo dice con la hora y no instala', async () => {
-  const limited = async () => new Response('{"message":"API rate limit exceeded"}', { status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1800000000' } });
+  const base = fakeFetch().fetchImpl;
+  const calls = [];
+  const limited = async (url, options) => {
+    calls.push(url);
+    if (url.startsWith('https://api.github.com/')) {
+      return new Response('{"message":"API rate limit exceeded"}', { status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 600) } });
+    }
+    return base(url, options);
+  };
+  const apiLimit = {};
   await assert.rejects(
-    installLatest({ currentVersion: '0.1.6', tempDir: tempDir(), fetchImpl: limited, launch: () => assert.fail('no debería instalar') }),
+    installLatest({ currentVersion: '0.1.6', tempDir: tempDir(), fetchImpl: limited, apiLimit, launch: () => assert.fail('no debería instalar') }),
     /GitHub limitó las consultas.*después de las/,
   );
+  // Mientras dura el corte, no vuelve a consultar la API.
+  const apiCalls = () => calls.filter((url) => url.startsWith('https://api.github.com/')).length;
+  assert.equal(apiCalls(), 1);
+  await assert.rejects(installLatest({ currentVersion: '0.1.6', tempDir: tempDir(), fetchImpl: limited, apiLimit, launch: () => assert.fail('no') }), /limitó/);
+  assert.equal(apiCalls(), 1);
+  // Para el aviso, sin la API igual se sabe que hay una nueva: solo faltan las novedades.
+  assert.deepEqual(await latestRelease({ currentVersion: '0.1.6', fetchImpl: limited, apiLimit }), { tag: 'v0.1.9', notes: '' });
   // Sin digest no se instala, aunque la versión sea nueva.
-  const sinHuella = async (url) => (url.startsWith('https://api.github.com/') ? Response.json(release({ digest: null })) : new Response('', { status: 404 }));
-  await assert.rejects(installLatest({ currentVersion: '0.1.6', tempDir: tempDir(), fetchImpl: sinHuella, launch: () => assert.fail('no debería instalar') }), /huella/);
+  const sinHuella = fakeFetch({ rel: release({ digest: null }) }).fetchImpl;
+  await assert.rejects(installLatest({ currentVersion: '0.1.6', tempDir: tempDir(), fetchImpl: sinHuella, apiLimit: {}, launch: () => assert.fail('no debería instalar') }), /huella/);
 });
 
 test('con net de Electron: toma el destino de la redirección sin seguirla', async () => {
@@ -154,4 +192,58 @@ test('con net de Electron: toma el destino de la redirección sin seguirla', asy
   await assert.rejects(latestTagWithNet(fakeNet('redirect', 302, 'HEAD', 'https://evil.example/releases/tag/v9.0.0')), /no informó/);
   await assert.rejects(latestTagWithNet(fakeNet('response', {})), /no informó/);
   await assert.rejects(latestTagWithNet(fakeNet('error', new Error('x'))), /No se pudo/);
+});
+
+test('con version.json: valida el instalador contra su tamaño y huella, sin la API', async () => {
+  const { fetchImpl, calls } = fakeFetch({ man: manifest() });
+  const launched = [];
+  const result = await installLatest({ currentVersion: '0.1.6', tempDir: tempDir(), fetchImpl, apiLimit: {}, launch: (file) => launched.push(file) });
+  assert.deepEqual(result, { version: '0.1.9' });
+  assert.deepEqual(fs.readFileSync(launched[0]), BYTES);
+  assert.deepEqual(calls, [LATEST, manifestUrl('v0.1.9'), URL_OK]);
+});
+
+test('con version.json: no instala si la huella o el tamaño no coinciden', async () => {
+  const launch = () => assert.fail('no debería instalar');
+  const otherSha = crypto.createHash('sha256').update('otro').digest('hex');
+  await assert.rejects(installLatest({ currentVersion: '0.1.6', tempDir: tempDir(), fetchImpl: fakeFetch({ man: manifest({ sha256: otherSha }) }).fetchImpl, launch }), /huella/);
+  await assert.rejects(installLatest({ currentVersion: '0.1.6', tempDir: tempDir(), fetchImpl: fakeFetch({ man: manifest({ size: BYTES.length - 1 }) }).fetchImpl, launch }), /más grande/);
+  await assert.rejects(installLatest({ currentVersion: '0.1.6', tempDir: tempDir(), fetchImpl: fakeFetch({ man: manifest({ size: BYTES.length + 1 }) }).fetchImpl, launch }), /incompleto/);
+});
+
+test('version.json: la versión tiene que ser la del tag y la dirección la arma la app', () => {
+  const parsed = parseManifest(manifest(), 'v0.1.9');
+  assert.deepEqual(parsed, { version: '0.1.9', notes: '- Uno\n- Dos', installer: { version: '0.1.9', url: URL_OK, sha256: SHA, size: BYTES.length } });
+  // Una dirección dentro del archivo se ignora.
+  const withUrl = { ...manifest(), assets: { 'LP-Cine-Vault-Setup.exe': { size: 5, sha256: SHA, url: 'https://evil.example/x.exe' } } };
+  assert.equal(parseManifest(withUrl, 'v0.1.9').installer.url, URL_OK);
+  assert.throws(() => parseManifest(manifest({ version: '0.1.8' }), 'v0.1.9'), /no coincide/);
+  assert.throws(() => parseManifest(manifest(), '0.1.9'), /inválida/);
+  assert.throws(() => parseManifest(manifest(), 'v0.1.9/../x'), /inválida/);
+  assert.throws(() => parseManifest(manifest({ sha256: 'abc' }), 'v0.1.9'), /huella/);
+  assert.throws(() => parseManifest(manifest({ size: 0 }), 'v0.1.9'), /tamaño/);
+  assert.throws(() => parseManifest(manifest({ size: '12' }), 'v0.1.9'), /tamaño/);
+  assert.throws(() => parseManifest({ version: '0.1.9', assets: {} }, 'v0.1.9'), /no trae/);
+});
+
+test('version.json dañado o enorme: no sigue', async () => {
+  const launch = () => assert.fail('no debería instalar');
+  await assert.rejects(installLatest({ currentVersion: '0.1.6', tempDir: tempDir(), fetchImpl: fakeFetch({ manText: '{roto' }).fetchImpl, launch }), /dañado/);
+  await assert.rejects(installLatest({ currentVersion: '0.1.6', tempDir: tempDir(), fetchImpl: fakeFetch({ manText: ' '.repeat(300 * 1024) }).fetchImpl, launch }), /más grande/);
+});
+
+test('aviso: novedades de version.json, sin la API; al día, sin bajar nada más', async () => {
+  const withManifest = fakeFetch({ man: manifest() });
+  assert.deepEqual(await latestRelease({ currentVersion: '0.1.6', fetchImpl: withManifest.fetchImpl, apiLimit: {} }), { tag: 'v0.1.9', notes: '- Uno\n- Dos' });
+  assert.deepEqual(withManifest.calls, [LATEST, manifestUrl('v0.1.9')]);
+  const upToDate = fakeFetch({ man: manifest() });
+  assert.deepEqual(await latestRelease({ currentVersion: '0.1.9', fetchImpl: upToDate.fetchImpl, apiLimit: {} }), { tag: 'v0.1.9', notes: '' });
+  assert.deepEqual(upToDate.calls, [LATEST]);
+  // Versión vieja sin version.json: las novedades salen de la API.
+  const old = fakeFetch({ rel: { ...release(), body: '- Desde la API\n' } });
+  assert.deepEqual(await latestRelease({ currentVersion: '0.1.6', fetchImpl: old.fetchImpl, apiLimit: {} }), { tag: 'v0.1.9', notes: '- Desde la API' });
+  // Con latestTag propio (en la app, net.request): no pide la redirección por fetch.
+  const own = fakeFetch({ man: manifest() });
+  await latestRelease({ currentVersion: '0.1.6', fetchImpl: own.fetchImpl, latestTag: async () => 'v0.1.9', apiLimit: {} });
+  assert.deepEqual(own.calls, [manifestUrl('v0.1.9')]);
 });

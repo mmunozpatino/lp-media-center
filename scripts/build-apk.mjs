@@ -25,7 +25,8 @@ function run(command, args, cwd) {
 }
 
 run('npx', ['cap', 'sync', 'android'], root);
-run(path.join(root, 'android', 'gradlew.bat'), [signed ? 'assembleRelease' : 'assembleDebug', '--no-daemon'], path.join(root, 'android'));
+// Between quotes: the repo path has a space ("Media Center") and the command goes through the shell.
+run(`"${path.join(root, 'android', 'gradlew.bat')}"`,[signed ? 'assembleRelease' : 'assembleDebug', '--no-daemon'], path.join(root, 'android'));
 
 const kind = signed ? 'release' : 'debug';
 const apk = path.join(root, 'android', 'app', 'build', 'outputs', 'apk', kind, `app-${kind}.apk`);

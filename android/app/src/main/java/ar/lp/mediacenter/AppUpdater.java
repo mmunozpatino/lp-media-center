@@ -18,8 +18,8 @@ import java.util.regex.Pattern;
 
 /**
  * Baja el APK de la última versión publicada en GitHub y comprueba que sea exactamente el publicado: dirección de
- * las versiones de este repo, tamaño y huella SHA-256 que informa GitHub. Qué bajar lo decide esta clase con la API
- * de GitHub, nunca la interfaz. Además, Android solo lo instala encima si está firmado con la misma clave.
+ * las versiones de este repo, tamaño y huella SHA-256 que informa version.json (publicado con cada versión; si falta,
+ * la API de GitHub). Qué bajar lo decide esta clase, nunca la interfaz. Además, Android solo lo instala encima si está firmado con la misma clave.
  * Es la versión Android de electron/updater.cjs.
  */
 final class AppUpdater {
@@ -37,12 +37,14 @@ final class AppUpdater {
         final String url;
         final String sha256;
         final long size;
+        final String notes;
 
-        Release(String version, String url, String sha256, long size) {
+        Release(String version, String url, String sha256, long size, String notes) {
             this.version = version;
             this.url = url;
             this.sha256 = sha256;
             this.size = size;
+            this.notes = notes;
         }
     }
 
@@ -110,15 +112,84 @@ final class AppUpdater {
                 + (hour != null ? "Probá de nuevo después de las " + hour + "." : "Probá de nuevo en una hora.");
     }
 
-    /** El APK de la última versión publicada, ya validado. */
+    private static final Pattern SHA256 = Pattern.compile("^[a-f0-9]{64}$");
+    private static final Pattern VERSION_TAG = Pattern.compile("^v\\d+(?:\\.\\d+){1,3}$");
+    /** version.json pesa menos de 1 KB más las novedades. */
+    private static final int MAX_MANIFEST_BYTES = 256 * 1024;
+    private static final int MAX_API_BYTES = 2 * 1024 * 1024;
+    /** Hasta cuándo la API cortó por su límite (ms) y su mensaje: no se vuelve a consultar antes. */
+    private static volatile long apiLimitedUntil = 0;
+    private static volatile String apiLimitedMessage = "";
+
+    /**
+     * El APK de la última versión publicada, ya validado. Primero con version.json, que se baja como cualquier archivo
+     * de la versión y no cuenta para el límite de la API de GitHub (60 consultas por hora por IP, compartidas por
+     * todos los equipos de la casa). Solo si la versión no lo trae (las publicadas antes de que existiera), la API.
+     */
     static Release latest() throws Exception {
+        String tag = latestTag();
+        Release release = fromManifest(tag);
+        return release != null ? release : latestFromApi();
+    }
+
+    /**
+     * Lee github.com/<repo>/releases/download/<tag>/version.json (lo arma scripts/version-json.mjs en el workflow).
+     * Null si esa versión no lo trae. La dirección del APK la arma esta clase, nunca el archivo.
+     */
+    static Release fromManifest(String tag) throws Exception {
+        if (!VERSION_TAG.matcher(String.valueOf(tag)).matches()) throw new IOException("Versión inválida.");
+        HttpURLConnection connection = open(DOWNLOAD_PREFIX + tag + "/version.json");
+        int code = connection.getResponseCode();
+        if (code == 404) {
+            connection.disconnect();
+            return null;
+        }
+        if (code != 200) throw new IOException("GitHub respondió " + code + " al buscar la versión nueva.");
+        JSONObject manifest;
+        try {
+            manifest = new JSONObject(readAll(connection.getInputStream(), MAX_MANIFEST_BYTES));
+        } catch (org.json.JSONException e) {
+            throw new IOException("La versión publicada trae un version.json dañado.");
+        }
+        return parseManifest(manifest, tag);
+    }
+
+    /** Valida version.json contra el tag. Separada para probarla sin red. */
+    static Release parseManifest(JSONObject manifest, String tag) throws IOException {
+        if (!VERSION_TAG.matcher(String.valueOf(tag)).matches()) throw new IOException("Versión inválida.");
+        String version = manifest.optString("version", "");
+        if (!version.equals(tag.substring(1))) throw new IOException("La versión publicada no coincide.");
+        JSONObject assets = manifest.optJSONObject("assets");
+        JSONObject apk = assets == null ? null : assets.optJSONObject(APK_NAME);
+        if (apk == null) throw new IOException("La versión publicada no trae el APK.");
+        String sha256 = apk.optString("sha256", "");
+        if (!SHA256.matcher(sha256).matches()) throw new IOException("No se informa la huella del APK: no se puede comprobar.");
+        Object rawSize = apk.opt("size");
+        long size = rawSize instanceof Number ? ((Number) rawSize).longValue() : 0;
+        if (size <= 0 || size > MAX_BYTES) throw new IOException("El tamaño del APK no es el esperado.");
+        return new Release(version, DOWNLOAD_PREFIX + tag + "/" + APK_NAME, sha256, size, manifest.optString("notes", "").trim());
+    }
+
+    /** Lo mismo con la API de GitHub, solo para versiones sin version.json. */
+    static Release latestFromApi() throws Exception {
+        if (System.currentTimeMillis() < apiLimitedUntil) throw new IOException(apiLimitedMessage);
         HttpURLConnection connection = open(RELEASES_API);
         connection.setRequestProperty("Accept", "application/vnd.github+json");
         int code = connection.getResponseCode();
         String limited = rateLimitMessage(connection, code);
-        if (limited != null) throw new IOException(limited);
+        if (limited != null) {
+            long until;
+            try {
+                until = Long.parseLong(connection.getHeaderField("X-RateLimit-Reset")) * 1000;
+            } catch (Exception e) {
+                until = System.currentTimeMillis() + 60 * 60 * 1000;
+            }
+            apiLimitedMessage = limited;
+            apiLimitedUntil = until;
+            throw new IOException(limited);
+        }
         if (code != 200) throw new IOException("GitHub respondió " + code + " al buscar la versión nueva.");
-        JSONObject release = new JSONObject(readAll(connection.getInputStream()));
+        JSONObject release = new JSONObject(readAll(connection.getInputStream(), MAX_API_BYTES));
         JSONArray assets = release.optJSONArray("assets");
         for (int i = 0; assets != null && i < assets.length(); i++) {
             JSONObject asset = assets.getJSONObject(i);
@@ -131,7 +202,7 @@ final class AppUpdater {
             if (!digest.matches()) throw new IOException("GitHub no informa la huella del APK: no se puede comprobar.");
             long size = asset.optLong("size", 0);
             if (size <= 0 || size > MAX_BYTES) throw new IOException("El tamaño del APK no es el esperado.");
-            return new Release(release.optString("tag_name", "").replaceFirst("^v", ""), url, digest.group(1), size);
+            return new Release(release.optString("tag_name", "").replaceFirst("^v", ""), url, digest.group(1), size, release.optString("body", "").trim());
         }
         throw new IOException("La versión publicada no trae el APK.");
     }
@@ -177,11 +248,15 @@ final class AppUpdater {
         return connection;
     }
 
-    private static String readAll(InputStream in) throws IOException {
+    /** Lee todo como texto, hasta `max` bytes: más que eso no es lo esperado. */
+    private static String readAll(InputStream in, int max) throws IOException {
         try (InputStream input = in; ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             byte[] buffer = new byte[16 * 1024];
             int read;
-            while ((read = input.read(buffer)) != -1) out.write(buffer, 0, read);
+            while ((read = input.read(buffer)) != -1) {
+                if (out.size() + read > max) throw new IOException("La respuesta de GitHub es más grande de lo esperado.");
+                out.write(buffer, 0, read);
+            }
             return out.toString(StandardCharsets.UTF_8.name());
         }
     }

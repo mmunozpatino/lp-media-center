@@ -103,12 +103,15 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
+      # Novedades, tamaño y huella de cada instalador: las apps los leen de acá y no de la API de GitHub, que tiene límite.
+      - name: version.json
+        run: node scripts/version-json.mjs "$LP_VERSION" "$RUNNER_TEMP/novedades.md" version.json LP-Cine-Vault.apk LP-Cine-Vault-Setup.exe
       - name: Publicar versión
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
           gh release create "v$LP_VERSION"
-          LP-Cine-Vault.apk LP-Cine-Vault-Setup.exe
+          LP-Cine-Vault.apk LP-Cine-Vault-Setup.exe version.json
           --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
           --title "LP Cine Vault $LP_VERSION"
           --notes-file "$RUNNER_TEMP/novedades.md"

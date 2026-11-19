@@ -313,26 +313,45 @@ el historial anterior, que tenía datos personales; ese historial queda solo en 
 En los tests van IP y nombres de ejemplo. Los commits usan el mail privado de GitHub, configurado solo en este repo.
 
 - **Cada push a main** corre `.github/workflows/version.yml`: tests, APK firmado y `LP-Cine-Vault-Setup.exe`, y publica
-  la versión `v0.1.<número de corrida>` con los dos archivos.
+  la versión `v0.1.<número de corrida>` con los dos archivos y `version.json`.
+- **version.json** (desde 2026-11-19, idea copiada de LP Exchange): lo arma `scripts/version-json.mjs` en el job `publicar`
+  (test en `test/version-json.test.js`) con `{ version, notes, assets: { "LP-Cine-Vault.apk": { size, sha256 },
+  "LP-Cine-Vault-Setup.exe": { size, sha256 } } }`; `notes` es el texto de `changelog.mjs --notas`, y tamaño y huella salen
+  de los archivos que se publican.
 - **Versión de cada app:** `scripts/build-info.mjs` escribe `ui/build-info.json`, que no se commitea. Sin ese archivo, la app es
   de desarrollo y no busca actualizaciones.
-- **Límite de la API de GitHub:** 60 consultas por hora sin autenticar, contadas por IP pública y compartidas por la PC, el
-  celu, la tablet y las pruebas. El 2026-11-13 se agotó y "Buscar actualizaciones" dijo que fallaba la conexión. Desde
-  entonces la última versión sale de la redirección de `github.com/<repo>/releases/latest` a `/releases/tag/vX.Y.Z`, que no
-  tiene ese límite. La pantalla no puede leer github.com (CORS), así que lo hace la parte nativa: `latestTagWithNet` en
-  `electron/updater.cjs` con `net.request` (`net.fetch` con `redirect: 'manual'` cancela la redirección; probado) y
-  `latestVersion` del plugin (`AppUpdater.latestTag`, `HEAD` sin seguir la redirección). La API se pide solo si hay una
-  versión nueva, para las novedades; si corta por el límite (403 con `X-RateLimit-Remaining: 0`, o 429), `rateLimitedUntil`
-  guarda hasta cuándo, no se vuelve a consultar antes y Settings lo dice con la hora. Igual se ofrece la descarga directa
-  (`releaseDownloadUrl`). Instalar sigue pidiendo la API para el `digest`: si está limitada, los instaladores lo dicen con
-  la hora y no instalan. La CSP no cambia: `connect-src` sigue con solo `https://api.github.com`.
+- **Sin la API de GitHub:** la API permite 60 consultas por hora sin autenticar, contadas por IP pública y compartidas por la
+  PC, el celu, la tablet y las pruebas (el 2026-11-13 se agotó). Por eso todo lo resuelve la parte nativa sin ella:
+  1. **Última versión:** la redirección de `github.com/<repo>/releases/latest` a `/releases/tag/vX.Y.Z`. En Windows,
+     `latestTagWithNet` con `net.request` (`net.fetch` con `redirect: 'manual'` cancela la redirección; probado); en Android,
+     `AppUpdater.latestTag` (`HEAD` sin seguir la redirección).
+  2. **Novedades, tamaño y huella:** `github.com/<repo>/releases/download/<tag>/version.json`, con tope de 256 KB y
+     comprobando que `version` sea la del tag. La dirección del instalador la arma el código nativo con el tag, nunca el
+     archivo (`parseManifest` en `electron/updater.cjs` y `AppUpdater.parseManifest`), y la descarga se valida contra ese
+     `size` y `sha256`.
+  3. **La pantalla no habla con GitHub:** pide `{ tag, notes }` con `window.lpDesktop.latestRelease()` (IPC
+     `lp:latest-release`) o `LpNetwork.latestRelease`. Si la versión instalada ya es la última, la parte nativa no baja
+     nada más. `connect-src` de la CSP ya no tiene `https://api.github.com` (ojo: `http:` en CSP3 también deja pasar
+     `https:`, así que la CSP no frena por sí sola un pedido a otro sitio; lo que importa es que la pantalla no lo haga).
+  - **Fallback para versiones sin version.json** (las hasta la 0.1.21): si `version.json` da 404, la parte nativa usa la API
+    como antes (`digest` del asset para instalar y `body` para las novedades). Si corta por el límite (403 con
+    `X-RateLimit-Remaining: 0`, o 429), guarda hasta cuándo en memoria y no la vuelve a consultar antes; instalar dice la
+    hora y no instala, y el aviso sale igual pero sin novedades, con la descarga directa (`releaseDownloadUrl`).
+  - **Probado el 2026-11-19:** tests con GitHub simulado (con y sin version.json, huella o tamaño que no coinciden, archivo
+    dañado o enorme, límite); `AppUpdater` en la JVM de escritorio contra GitHub real (fallback, sin version.json) y su
+    `parseManifest` con datos de ejemplo; Electron sin empaquetar diciendo ser 0.1.20 (aviso de 0.1.21 con novedades por el
+    fallback); y en el emulador un APK 0.1.20 local: aviso con novedades después de cerrar el diálogo de novedades, y
+    "Actualizar ahora" bajó y validó la 0.1.21 por el fallback hasta el cartel de Android. **Sin probar en real:** el camino
+    con version.json en las apps, porque ninguna versión publicada lo trae todavía; se comprueba con la primera que sí.
+  - **Gradle desde Bash o PowerShell de Claude:** falla con "Unable to establish loopback connection" (el sandbox no deja a
+    Java abrir su pipe por loopback). Anda con `JAVA_TOOL_OPTIONS=-Djdk.net.unixdomain.tmpdir=<carpeta temporal propia>`.
 - **Aviso:** la app consulta GitHub al abrir y cada 6 horas, y cuando se pide en Settings, "Versión", con "Buscar
   actualizaciones" (ahí el aviso aparece aunque se haya tocado "Más tarde"). Si hay una más nueva, ofrece descargarla: en Android el
   APK con "Actualizar ahora" (`AppUpdater.java` y `installUpdate` de `LpNetworkPlugin`): misma validación que en Windows, baja a la
   caché y abre el cartel de Android con el FileProvider, que siempre pide confirmar. La primera vez abre el ajuste "instalar apps
   desconocidas" (`REQUEST_INSTALL_PACKAGES`). Probado el 2026-11-08 en el emulador, de un 0.1.7 local a la 0.1.8 publicada; Play
-  Protect pidió escanearla la primera vez. En Windows, "Actualizar ahora" (`electron/updater.cjs`, por `electron/preload.cjs`) baja el instalador de la API de GitHub,
-  comprueba tamaño y SHA-256 (`digest` del asset) y lo corre con `--updated /S --force-run`: cierra la app y su backend
+  Protect pidió escanearla la primera vez. En Windows, "Actualizar ahora" (`electron/updater.cjs`, por `electron/preload.cjs`) baja el instalador de la versión,
+  comprueba tamaño y SHA-256 (de `version.json`, o el `digest` de la API en las versiones viejas) y lo corre con `--updated /S --force-run`: cierra la app y su backend
   (`build/installer.nsh`), instala en silencio y la vuelve a abrir. Qué bajar lo decide el proceso principal, nunca la interfaz.
   Probado el 2026-11-08 de punta a punta, de un 0.1.5 local a la 0.1.6 publicada. Si falla, ofrece bajarla a mano.
   El aviso lista los títulos de la release nueva. Hasta el 2026-11-07 la CSP no dejaba leer `build-info.json` en Windows

@@ -9,7 +9,7 @@
          las miniaturas de TMDB, y sin ellas se dibuja un marcador. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' http: https://api.github.com; img-src https://image.tmdb.org data:; base-uri 'none'; form-action 'none'"
+      content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self' http:; img-src https://image.tmdb.org data:; base-uri 'none'; form-action 'none'"
     />
     <title>Media Center</title>
     <script>
@@ -3467,7 +3467,6 @@
       // Cada versión de main se publica en GitHub con su APK y su instalador. La app compara la suya, que
       // viene en build-info.json (lo escribe el workflow), con la última publicada. Sin ese archivo, es una
       // versión de desarrollo y no busca nada.
-      const RELEASES_API = 'https://api.github.com/repos/mmunozpatino/lp-media-center/releases/latest';
 
       /** Un JSON que viaja dentro de la app, o null si no está. */
       async function bundledJson(name) {
@@ -3483,62 +3482,34 @@
       /** { version, commit } de esta app, o null si es de desarrollo. Se lee una sola vez. */
       const loadBuildInfo = () => (buildInfo ??= bundledJson('build-info.json'));
 
-      // La API de GitHub permite 60 consultas por hora sin autenticar, contadas por IP pública: las comparten la PC, el celu
-      // y la tablet. Por eso la última versión sale de la redirección de github.com/…/releases/latest, que no tiene ese
-      // límite y la lee la parte nativa (la pantalla no puede leer github.com). La API se consulta solo cuando hay una
-      // versión nueva, para sus novedades, y nunca mientras dure un corte por el límite.
-      let apiLimitedUntil = 0;
+      // La pantalla no lee GitHub: la última versión y sus novedades las trae la parte nativa (electron/updater.cjs y
+      // AppUpdater.java), de la redirección de github.com/…/releases/latest y del version.json que se publica con cada
+      // versión. Ninguno cuenta para el límite de la API de GitHub (60 consultas por hora por IP, compartidas por la PC,
+      // el celu y la tablet). Si una versión vieja no trae version.json, la parte nativa prueba la API para las novedades.
 
-      /** "v0.1.15" de la redirección, por Electron o por el plugin de Android. undefined si no hay parte nativa. */
-      async function nativeLatestTag() {
-        if (typeof window.lpDesktop?.latestVersion === 'function') return (await window.lpDesktop.latestVersion()).tag;
-        if (isMobile && window.Capacitor?.nativePromise) return (await window.Capacitor.nativePromise('LpNetwork', 'latestVersion', {})).tag;
+      /** { tag: "v0.1.15", notes } por Electron o por el plugin de Android. undefined si no hay parte nativa. */
+      async function nativeLatestRelease() {
+        if (typeof window.lpDesktop?.latestRelease === 'function') return window.lpDesktop.latestRelease();
+        if (isMobile && window.Capacitor?.nativePromise) return window.Capacitor.nativePromise('LpNetwork', 'latestRelease', {});
         return undefined;
       }
 
-      /** La release por la API. { release } o { limitedUntil }. Falla si no se pudo consultar. */
-      async function releaseFromApi() {
-        if (Date.now() < apiLimitedUntil) return { limitedUntil: apiLimitedUntil };
-        const response = await fetch(RELEASES_API, {
-          headers: { Accept: 'application/vnd.github+json' },
-          cache: 'no-store',
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        });
-        const limited = rateLimitedUntil(response.status, response.headers);
-        if (limited) {
-          apiLimitedUntil = limited;
-          return { limitedUntil: limited };
-        }
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        return { release: await response.json() };
-      }
-
       /**
-       * Busca en GitHub. state: 'dev' (sin build-info.json), 'error' (no se pudo consultar), 'limited' (la API cortó por
-       * su límite; trae limitedUntil), 'current' (está al día) o 'available', con version, url y notes.
+       * Busca en GitHub. state: 'dev' (sin build-info.json), 'error' (no se pudo consultar), 'current' (está al día) o
+       * 'available', con version, url (descarga a mano) y notes.
        */
       async function findUpdate() {
         const current = await loadBuildInfo();
         if (!current?.version) return { state: 'dev' };
         try {
-          const tag = await nativeLatestTag();
-          if (tag && !isNewerVersion(tag, current.version)) return { state: 'current', version: current.version };
-          const fromApi = await releaseFromApi();
-          if (fromApi.limitedUntil) {
-            // Sin la API igual se sabe que hay una nueva y se puede bajar; solo faltan las novedades.
-            if (!tag) return { state: 'limited', limitedUntil: fromApi.limitedUntil };
-            return { state: 'available', version: tag.replace(/^v/, ''), url: releaseDownloadUrl(tag, isMobile), notes: { titles: [], more: 0 } };
-          }
-          const release = fromApi.release;
-          if (!isNewerVersion(release.tag_name, current.version)) return { state: 'current', version: current.version };
-          const asset = pickReleaseAsset(release.assets, isMobile);
-          // Publicada sin el archivo de este equipo: para él, todavía no hay nada nuevo.
-          if (!asset) return { state: 'current', version: current.version };
+          const latest = await nativeLatestRelease();
+          if (!latest?.tag) return { state: 'error' };
+          if (!isNewerVersion(latest.tag, current.version)) return { state: 'current', version: current.version };
           return {
             state: 'available',
-            version: release.tag_name.replace(/^v/, ''),
-            url: asset.browser_download_url,
-            notes: releaseTitles(release.body),
+            version: latest.tag.replace(/^v/, ''),
+            url: releaseDownloadUrl(latest.tag, isMobile),
+            notes: releaseTitles(typeof latest.notes === 'string' ? latest.notes : ''),
           };
         } catch {
           return { state: 'error' };
@@ -4820,38 +4791,9 @@
         return false;
       }
 
-      /** El APK para Android y el instalador para Windows. */
-      function pickReleaseAsset(assets, mobile) {
-        const extension = mobile ? '.apk' : '.exe';
-        return (assets ?? []).find((asset) => String(asset.name).toLowerCase().endsWith(extension)) ?? null;
-      }
-
-      /**
-       * La versión de la redirección de github.com/<repo>/releases/latest, que no tiene el límite de la API:
-       * ".../releases/tag/v0.1.15" → "v0.1.15". Cualquier otra cosa, null.
-       */
-      function tagFromReleaseUrl(url) {
-        const match = /^(?:https:\/\/github\.com)?\/mmunozpatino\/lp-media-center\/releases\/tag\/(v\d+(?:\.\d+){1,3})\/?$/.exec(String(url ?? ''));
-        return match ? match[1] : null;
-      }
-
-      /** Descarga directa de un archivo de una versión, sin pasar por la API. */
+      /** Descarga a mano de un archivo de una versión ("Descargar" o "Bajarla a mano"): se abre en el navegador. */
       function releaseDownloadUrl(tag, mobile) {
         return `https://github.com/mmunozpatino/lp-media-center/releases/download/${tag}/${mobile ? 'LP-Cine-Vault.apk' : 'LP-Cine-Vault-Setup.exe'}`;
-      }
-
-      /**
-       * Si la API de GitHub cortó por su límite de consultas sin autenticar (60 por hora por IP pública): hasta cuándo, en
-       * milisegundos. Null si la respuesta no es eso. `headers` es un Headers o algo con get().
-       */
-      function rateLimitedUntil(status, headers, now = Date.now()) {
-        const remaining = headers?.get?.('x-ratelimit-remaining');
-        if (status !== 429 && !(status === 403 && remaining === '0')) return null;
-        const reset = Number(headers?.get?.('x-ratelimit-reset'));
-        const retry = Number(headers?.get?.('retry-after'));
-        if (Number.isFinite(reset) && reset > 0) return reset * 1000;
-        if (Number.isFinite(retry) && retry > 0) return now + retry * 1000;
-        return now + 60 * 60 * 1000;
       }
 
       /** changelog.json (lo arma scripts/changelog.mjs) limpio: versiones válidas, de la más nueva a la más vieja. */
@@ -6994,8 +6936,16 @@
           if (update.state !== 'error') $('update').hidden = true;
           return update;
         }
+        await newsDialogClosed();
         showUpdateBanner(update);
         return update;
+      }
+
+      /** Si el diálogo de novedades está abierto, espera a que se cierre: el aviso de versión nueva no se le encima. */
+      function newsDialogClosed() {
+        const dialog = $('news-dialog');
+        if (!dialog?.open) return Promise.resolve();
+        return new Promise((resolve) => dialog.addEventListener('close', resolve, { once: true }));
       }
 
       // Las apps saben bajar e instalar solas la versión nueva: Windows con electron/updater.cjs, en silencio, y
@@ -7113,9 +7063,6 @@
             result.replaceChildren(el('span', null, 'Hay una versión nueva: ' + update.version + '. '), updateButton(update, status), status);
           } else if (update.state === 'current') {
             result.textContent = 'Ya tenés la última versión.';
-          } else if (update.state === 'limited') {
-            const hour = new Date(update.limitedUntil).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
-            result.textContent = `GitHub limitó las consultas por un rato: no es tu conexión. Probá de nuevo después de las ${hour}.`;
           } else {
             result.textContent = 'No se pudo consultar GitHub. Revisá la conexión a internet y probá de nuevo.';
           }
